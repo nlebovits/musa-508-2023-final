@@ -1,0 +1,1216 @@
+---
+title: "Optimizing Zestimate®"
+subtitle: "Leveraging Local Intelligence to Predict Housing Prices, Philadelphia"
+author: "Authors: Alexa Ringer and Laura Frances, University of Pennsylvania "
+date: 'Date: 2023-10-11'
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    code_folding: hide
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r echo = TRUE, warning = FALSE, message = FALSE, include = FALSE}
+rm(list=ls())
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,  fig.retina = 3) 
+
+#install.packages("Rcpp")
+#install.packages("sfdep")
+#install.packages("knitr")
+#install.packages("broom")
+#install.packages("kableExtra")
+#install.packages("spdep")
+#install.packages("caret")
+#install.packages("ggplot2")
+# install.packages("RColorBrewer")
+# install.packages("classIn")
+library(knitr)
+require(mlogit)
+require(tidyverse)
+require(ggcorrplot)
+require(ggplot2)
+require(sf)
+library(stargazer)
+library(sf)
+library(sfdep)
+library(tidyverse)
+library(tidycensus)
+library(dplyr)
+library(ggplot2)
+library(ggcorrplot)
+library(patchwork)
+library(caret)
+library(lmtest)
+library(broom)
+library(nnet)
+library(tidyr)
+library(walkscoreAPI)
+library(walkscore)
+library(tidygeocoder)
+library(mapview)
+library(psych)
+library(tigris)
+library(stargazer)
+library(cowplot)
+library(broom)
+library(knitr)
+library(kableExtra)
+library(spdep)
+library(RColorBrewer)
+library(classInt)
+
+options(scipen=999) #no scientific notation
+options(tigris_class = "sf") #whenever we get tigris, we want sf 
+options(tigris_use_cache = TRUE) 
+
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+census_api_key("c49a9145a5cad600a8b6393d31dbed862a0211a1", overwrite = TRUE, install = TRUE)
+
+walkscore_api_key <- "a83ef68e5c1fe972c4e44b16449984dd"
+
+setwd("/Users/LauraFrances_1/Library/CloudStorage/GoogleDrive-lauramuellersoppart@gmail.com/My Drive/Penn/Courses/MUSA508_PPA/PPA_Midterm/PPA_Midterm_Git")
+
+rm(mapTheme) 
+mapTheme <- function(base_size = 12, title_size = 12, subtitle_size = 10) {
+  theme(
+    text = element_text(color = "black"),
+    plot.title = element_text(size = title_size, colour = "black"),
+    plot.subtitle = element_text(face = "italic", size = subtitle_size),
+    plot.caption = element_text(hjust = 0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(colour = "black", fill = NA, size = 1),
+    strip.text.x = element_text(size = 12)
+  )
+}
+
+rm(plotTheme)
+plotTheme <- function(base_size = 12, title_size = 12, subtitle_size = 10) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = title_size, colour = "black"), 
+    plot.subtitle = element_text(face="italic", size = subtitle_size),
+    plot.caption = element_text(hjust=0),
+    axis.ticks = element_line(size = 0.5),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("grey80", size = 0.1),
+    panel.border = element_rect(colour = "black", fill=NA, size=2),
+    strip.background = element_rect(fill = "grey80", color = "white"),
+    strip.text = element_text(size=12),
+    axis.title = element_text(size=12),
+    axis.text = element_text(size=10),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"),
+    strip.text.x = element_text(size = 14),
+    axis.ticks.x = element_line(size = 0.5)
+  )
+}
+
+palette <- c("#A5C4D4","#8499B1","#7B6D8D","#593F62","#36151E") 
+
+
+```
+
+# **Overview**
+
+Local intelligence is a strong predictor of housing prices in Philadelphia that can optimize Zillow's popular and consequential Zestimate tool. Real estate professionals as well as home buyers and sellers alike trust Zestimate to be an accurate prediction of local real estate values. Investing in the tool's reliability stands to not only benefit Zillow's customers, but the company's dominant market position, too.  
+
+The following study explores a series of local intelligence variables that range from tree-lined street to local median income. A series of statistical processes reveal a handful of key variables that are then processed by prediction models. The best prediction model is then tested on 2023 sale price data for accuracy. The study is mindful of creating models that are generalizable across Philadelphia, and hopefully generalizable across major metro areas throughout the country.
+
+
+# **Select and Load Data**
+
+Firstly, sales data is a tremendous resource in terms of the internal characteristics of each property which can certainly influence price. This study leverages data such as year built, total square footage, number of bathrooms and bedrooms to holistically understand what influences price.  
+
+However, the property itself does not tell the full story. Where it is located and the characteristics of that area are key, too. There are myriad local intelligence variables to chose from between a number of key open data sources (2021-2023), including:
+U.S. Census American Community Survey, Pennsylvania Spatial Data Access (PASDA), Philadelphia Open Data Portal, or from the Delaware Valley Regional Planning Commission (DVRPC). This study priorizited complete datasets that affect the city at large. For example, litter is a systemic issue whereas airports are very localized. The following table breaks down viable sources and from which we selected local intelligence variables that we deemed to be generalizable for the purposes of this study:  
+
+```{r echo = TRUE, warning = FALSE, message = FALSE}
+
+# Create a data frame with your data
+data_frame <- data.frame(
+  "Dataset" = c(
+    "Floodplain Data",
+    "Sanitation Centers",
+    "Litter Index",
+    "Demographics and Socioeconomic Data",
+    "Housing Typology",
+    "Trees",
+    "Neighborhood",
+    "Proximity to Highways",
+    "School Catchment Performance",
+    "Walkscore", 
+    "1937 Redlining Score"
+  ),
+  "Generalizability" = c(
+    "",   # Floodplain Data 
+    "",   # Sanitation Centers 
+    "✔",  # Litter Index 
+    "✔",  # Demographics and Socioeconomic Data 
+    "",   # Housing Typology 
+    "✔",  # Trees 
+    "✔",  # Neighborhood
+    "✔",  # Proximity to Highways 
+    "",   # School Catchment Performance 
+    "",   # Walkscore 
+    "✔"  # 1937 Redlining Score
+  )
+)
+
+
+dt_url <- c("https://data-phl.opendata.arcgis.com/datasets/phl::fema-100-flood-plain/explore",
+            "https://opendataphilly.org/datasets/sanitation-areas/",
+            "https://opendataphilly.org/datasets/litter-index/",
+            "https://www.census.gov/",
+            "https://www.census.gov/",
+            "https://opendataphilly.org/datasets/phillytreemap/",
+           "https://www.pasda.psu.edu/uci/DataSummary.aspx?dataset=7047",
+           "https://dvrpc-dvrpcgis.opendata.arcgis.com/datasets/dvrpcgis::freight-highway-network/explore",
+           "https://www.philasd.org/performance/programsservices/open-data/school-information/",
+           "http://walkscore.com/",
+           "https://ncrc.org/holc/")
+
+data_frame %>%
+  mutate(Dataset = cell_spec((Dataset), "html", link = dt_url)) %>%
+  kable(format = "html", escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("hover", "condensced"), full_width = FALSE, 
+                position = "left") %>%
+  column_spec(column = 2, width = "20%", extra_css = "text-align:center;"
+               )
+
+``` 
+
+
+```{r echo = FALSE, warning = FALSE, message = FALSE, results='hide'}
+## SALES DATA
+
+# Bring in 2023 house price data 
+sales2023 <- st_read("/Users/LauraFrances_1/Library/CloudStorage/GoogleDrive-lauramuellersoppart@gmail.com/My Drive/Penn/Courses/MUSA508_PPA/PPA_Midterm/PPA_Midterm_Git/data/studentData.geojson") %>% 
+  st_transform('EPSG:2272')
+
+# Mutate sales  data to create new variables
+sales2023 <- sales2023 %>% 
+  mutate(historic = ifelse(year_built < 1920, 1,
+                           ifelse(year_built >= 1920 & year_built <= 1995, 2, 3)))
+
+## CENSUS DATA
+# Gather potential independent variables from the 2021 5Y-ACS on the census block group level
+
+acs_vars <- c(
+  "B01003_001E", # Total population
+  "B19013_001E", # Median household income
+  "B25002_001E", # Number of housing units
+  "B25002_002E", # Number of occupied housing units
+  "B25002_003E", # Number of vacant housing units
+  "B25003_002E", # Number of owner-occupied housing units
+  "B25003_003E", # Number of renter-occupied housing units
+  "B25037_001E", # Median year structure built
+  "B25037_002E", # Median year owner-occupied structure built
+  "B25037_003E", # Median year renter-occupied structure built
+  "B25024_001E", # Total Units in Structure
+  "B25024_002E", # Single Family detached
+  "B25024_003E", # Single Family attached
+  "B25024_004E", # 2 Units
+  "B25024_005E", # 3-4 Units
+  "B25024_006E", # 5-9 Units
+  "B25024_007E", # 10-19 Units
+  "B25024_008E", # 20-49 Units
+  "B25024_009E" # 50+ Units
+)
+
+#Get data with geometry 
+
+blocks21.sf <- 
+  get_acs(geography = "cbg", #census block group
+          variables = acs_vars, 
+          year=2021, state=42,
+          county=101, geometry=TRUE, output = 'wide') %>% 
+  st_transform('EPSG:2272') %>%
+  dplyr::select(-NAME, -ends_with("M"))  %>%
+  rename(TotalPop = B01003_001E, MedHHInc = B19013_001E, 
+         HousingUnits = B25002_001E, HousingUnits_Occ = B25002_002E, HousingUnits_Vac = B25002_003E,
+         Occ_Owner = B25003_002E, Occ_Renter = B25003_003E, 
+         YearBuilt = B25037_001E, YearBuilt_Owner = B25037_002E, YearBuilt_Renter = B25037_003E, 
+         Units = B25024_001E, Units_detached = B25024_002E, Units_attached = B25024_003E, 
+         Units_2 = B25024_004E, Units_3 = B25024_005E, Units_5 = B25024_006E, 
+         Units_10 = B25024_007E, Units_20 = B25024_008E, Units_50plus = B25024_009E) %>% 
+  mutate(cbg_area = st_area(.))
+
+blocks21.sf[is.na(blocks21.sf)==TRUE] <- 0 #turn NA into 0 
+
+# Get data without geometry 
+
+blocks21 <- get_acs(geography = "cbg",year = 2021, 
+                    variables = acs_vars, output = "wide",
+                    geometry = FALSE, state = 42, county = 101) %>%
+  dplyr::select(-NAME, -ends_with("M"))  %>%
+  rename(TotalPop = B01003_001E, MedHHInc = B19013_001E, 
+         HousingUnits = B25002_001E, HousingUnits_Occ = B25002_002E, HousingUnits_Vac = B25002_003E,
+         Occ_Owner = B25003_002E, Occ_Renter = B25003_003E, 
+         YearBuilt = B25037_001E, YearBuilt_Owner = B25037_002E, YearBuilt_Renter = B25037_003E, 
+         Units = B25024_001E, Units_detached = B25024_002E, Units_attached = B25024_003E, 
+         Units_2 = B25024_004E, Units_3 = B25024_005E, Units_5 = B25024_006E, 
+         Units_10 = B25024_007E, Units_20 = B25024_008E, Units_50plus = B25024_009E) 
+
+blocks21[is.na(blocks21)==TRUE] <- 0 #turn NA into 0
+
+# Mutate census data to create new variables
+
+blocks21.sf <- blocks21.sf %>%
+  mutate(
+    pctdetached = ifelse(Units > 0, 100 * (Units_detached / Units), 0),
+    pctmultifam_small = ifelse(Units > 0, 100 * (Units_2 + Units_3) / Units, 0)) 
+
+# Join census data to sales data.
+
+sales2023 <- sales2023 %>%
+  st_join(blocks21.sf, join = st_intersects)
+```
+
+
+## Boundaries
+
+From highways to rivers, man-made and natural boundaries alike delineate neighborhoods where certain people and types of businesses congregate. Neighborhood boundaries are arguably more organic than census block groups (which are optimized for consistent populations) or highway. Additionally, because residential sales are generalized by residential neighborhoods not by census block groups, neighborhoods (as defined by the Philly Planning Dept) are likely significant on local intelligence.You can see where areas of <span style="color:#4B7740 ;"><b>high</b></span> income and <span style="color: #A5C4D4;"><b>low</b></span> income cluster across Philadelphia, and how these boundaries are more recognizable at a neighbrhood level than block group level. 
+
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results='hide', out.width = '100%'}
+# plot sales data using median cut off  
+
+sales_plot_mod <- sales2023 %>%
+  filter(toPredict == "MODELLING")
+
+median_sale_price <- median(sales_plot_mod$sale_price)
+custom_colors <- ifelse(sales_plot_mod$sale_price <= median_sale_price, "#A5C4D4", "#4B7740")
+
+sales_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, color = "gray70") +
+  geom_sf(data = sales_plot_mod, aes(color = custom_colors), size = 0.5, alpha = 0.5) +
+  scale_color_manual(
+    values = c("#A5C4D4" = "#A5C4D4", "#4B7740" = "#4B7740"),
+    labels = c("#4B7740" = "Above Median", "#A5C4D4" = "Below Median")) +
+  labs(title = "Block Groups", color = "") +
+  theme(legend.position = "none") + 
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(subtitle = "2021 Philadelphia Median \nSale Price is $229,900") +
+  mapTheme()
+
+#Bring in neighborhoods
+
+hoods <- st_read("/Users/LauraFrances_1/Library/CloudStorage/GoogleDrive-lauramuellersoppart@gmail.com/My Drive/Penn/Courses/MUSA508_PPA/PPA_Midterm/PPA_Midterm_Git/data/PhillyPlanning_Neighborhoods/PhillyPlanning_Neighborhoods.shp") %>%
+  select(NAME) %>%
+  rename(Neighborhood = NAME)
+
+sales2023 <- st_join(sales2023, hoods, join = st_within)
+
+hood_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, fill = "gray90", color = "gray90") +
+  geom_sf(data = hoods, color = "gray60") +
+  geom_sf(data = sales_plot_mod, aes(color = custom_colors), size = 0.5, alpha = 0.5) +
+  scale_color_manual(
+    values = c("#A5C4D4" = "#A5C4D4", "#4B7740" = "#4B7740"),
+    labels = c("#4B7740" = "Above Median", "#A5C4D4" = "Below Median")) +
+  labs(title = "Neighborhoods") +
+  theme(legend.position = "none") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  labs(subtitle = "Neighborhoods as defined by Philadelphia \nPlanning Dept") +
+  mapTheme()
+
+#Bring in highways and apply buffer of 1/8 mile (660')
+
+highways <- st_read("/Users/LauraFrances_1/Library/CloudStorage/GoogleDrive-lauramuellersoppart@gmail.com/My Drive/Penn/Courses/MUSA508_PPA/PPA_Midterm/PPA_Midterm_Git/data/Freight_Highway_Network.geojson")
+
+highways <- highways %>%
+  filter(state == "PA") %>%
+  st_transform('EPSG:2272')
+
+highways_phl <-  st_intersection(highways, blocks21.sf) %>%
+  select(geometry)
+
+highway_buffer <- st_buffer(highways_phl, 660)
+highway_buffer$hwy_grade <- 1
+
+# Make a dummy variable where 1 is a house within highway buffer and 0 is outside of buffer. 
+
+saleshighways <- st_intersection(sales2023, highway_buffer)
+
+homes_near_hwys <- saleshighways$objectid  #creates a list using unique ids from saleshighways
+
+sales2023 <- sales2023 %>%
+  mutate(hwy_grade = ifelse(objectid %in% homes_near_hwys, 1, 0))
+
+hwy_plot <- ggplot() + 
+  geom_sf(data = blocks21.sf, color = "gray70") +
+   geom_sf(data = sales_plot_mod, aes(color = custom_colors), size = 0.5, alpha = 0.5) +
+  scale_color_manual(
+    values = c("#A5C4D4" = "#A5C4D4", "#4B7740" = "#4B7740"),
+    labels = c("#4B7740" = "Above Median", "#A5C4D4" = "Below Median")) +
+  geom_sf(data = highway_buffer, aes(fill = "#36151E", color = "#36151E")) +
+  scale_fill_identity(name = "Highway", labels = "#36151E") +
+  scale_color_identity(name = "Highway", labels = "#36151E") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  labs(title = "Highway Proximity") +
+  labs(subtitle = "The highway buffer is 660 feet, \nabout 2 Philadelphia blocks.") +
+  mapTheme()
+
+#plot all three together
+
+plot_grid(sales_plot, hood_plot, hwy_plot, ncol = 3, align = "v")
+```
+
+It is important to be aware of how the sales are distributed around the city. There are many block groups without any housing sales, whereas there are fewer neighborhoods where this is true because neighborhoods are residential in nature. Geographically, because neighborhoods are generally divided along residential vs industrial zoning lines, it is simpler to comprehend how it is generalizable across the city.
+
+Interestingly, when considering the impact of highways in Philadelphia, it is reasonable to assess that it is not generalizable. However, given how consistently home prices drop below the median within proximity to the highway regardless of the sale is in Center City or Port Richmond, we decided that it is a variable worth further investigation.
+
+
+## Redlining and Price Clustering
+
+In the 1930s, a federal agency, the Home Owners' Loan Corporation (HOLC), created maps of mortgage risk which denied entire neighborhoods access to public lending benefits and overall economic opportunity. The institutionalize of marginalization of poor, Black communities ingrained persistent residential segregation that is still evidenced by income inequality across the city. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results='hide', out.width = '100%'}
+
+# Get and wrangle redlining data
+
+redlining.sf <- st_read("/Users/LauraFrances_1/Library/CloudStorage/GoogleDrive-lauramuellersoppart@gmail.com/My Drive/Penn/Courses/MUSA508_PPA/PPA_Midterm/PPA_Midterm_Git/data/Redlining.geojson") %>% 
+  st_transform('EPSG:2272') %>% 
+  filter(state == "PA", city == "Philadelphia") 
+
+redlining.sf <- redlining.sf %>%
+  dplyr::select(-c(holc_id, state, city, neighborhood_id, area_description_data, name)) %>%
+  drop_na() 
+
+# Join each house with historic redlining grade 
+
+sales2023 <- st_join(sales2023, redlining.sf, join = st_within) 
+
+sales2023 <- sales2023 %>% 
+  dplyr::mutate(holc_grade = ifelse(is.na(holc_grade) == TRUE, "NA", holc_grade))
+
+# Plotting Redlining Maps 
+
+redlining_colors <- c("NA" = "gray85", "A" = "#197991", "B" = "#4B7740", "C" = "#E3D26F", "D" = "#D52F4D")
+redlining_palette <- c("#197991", "#4B7740", "#E3D26F", "#D52F4D", "#A9233B")
+
+redlining.sf.phl <- st_intersection(redlining.sf, blocks21.sf) #clip redlining to PHL boundaries
+  
+Redlining_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, color = "gray70") +
+  geom_sf(data = redlining.sf.phl, aes(fill = holc_grade, text = holc_grade), alpha = 0.8) +
+  scale_fill_manual(values = redlining_colors, name = "HOLC Grade") +
+  labs(title = "1937 HOLC Redlining", caption = "by 2020 Block Group") +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  mapTheme() 
+
+Income_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, color = "grey70") +
+  geom_sf(data = sales2023, aes(colour = q5(MedHHInc)), 
+          show.legend = "point", size = .5, alpha = 0.5) +
+  scale_colour_manual(values = rev(redlining_palette),
+                   labels=qBr(sales2023,"MedHHInc"),
+                   name="Income\nBrackets") +
+  labs(title="2023 Median Incomes", caption = "by 2020 Block Group") +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  mapTheme()
+
+plot_grid(Redlining_plot, Income_plot, ncol = 2, align = "v")
+
+```
+
+
+NCRC states that, "There is significantly greater economic inequality in cities where more of the HOLC graded high-risk or “Hazardous” areas are currently minority neighborhoods." [(NCRC)](https://ncrc.org/holc/) The impact of HOLC is generalizable. One exception to note is Center City where it has many high income earners despite its high-risk grade likely due to post-war downtown revitalization.
+
+When considering the patterns of redlining and neighborhoods, it is likely that neighborhoods such as Center City will account for divergences in the redlining data, and neighborhoods such as Kensington will account for consistencies in the redlining data when we develop our definition of local intelligence. 
+
+
+
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+
+## K NEAREST NEIGHBOR: PRICE
+
+sales2023 <- sales2023 %>% 
+  mutate(nb = st_knn(geometry, k = 5),
+         wt = st_weights(nb),
+         price_lag = st_lag(sale_price, nb, wt))
+
+```
+
+**Price Lag** : To systemically investigate price clustering beyond redlining and in today's data, a function called "k-nearest neighbor" calculates a weighted average of the 5 nearest properties' sales price. This price lag variable accounts Philadelphia's 'block-by-block' dynamics borne from its density and long history where many uses from mansions to power plants have converged within mere feet of one another - but can drastically impact sale price potentially. 
+
+
+## Environmental Conditions
+
+Proximity to amenities and distance from disamenities certainly has a colloquial effect on housing prices. Broker descriptions love to tout, "2 Blocks from Park!" or "Tucked away, quiet street!" To test the effect of environmental data, the study inclues tree density and litter conditions. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results='hide', out.width = '100%'}
+## TREES by BLOCK GROUP
+
+trees.sf <- st_read("https://opendata.arcgis.com/api/v3/datasets/30ef36e9e880468fa74e2d5b18da4cfb_0/downloads/data?format=geojson&spatialRefId=4326") %>%
+  st_transform('EPSG:2272') 
+
+trees.sf <- st_join(trees.sf, blocks21.sf, join = st_within)
+
+trees.sf <- trees.sf %>%
+  select(c(OBJECTID, TREE_NAME, YEAR, GEOID))
+
+trees.sf <- trees.sf %>%
+  group_by(GEOID) %>%  # census block group
+  summarize(trees = n()) 
+
+blocks21.sf.trees <- st_join(blocks21.sf, trees.sf, by = "GEOID")
+
+blocks21.sf.trees <- mutate(blocks21.sf.trees, trees = ifelse(is.na(trees), 0, trees)) %>% 
+  select(trees, GEOID.y) 
+
+sales2023 <- sales2023 %>%
+  st_join(blocks21.sf.trees, join = st_intersects)
+
+trees_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, fill = "gray20", color = "gray40") +
+  stat_density2d(data = data.frame(st_coordinates(trees.sf)),
+                 aes(X, Y, fill = ..level.., alpha = ..level..),
+                 size = 0.01, bins = 30, geom = 'polygon') +
+  scale_fill_gradient(
+    high = "#4B7740", 
+    low = "#ABCDA2", 
+    name = "",
+   breaks = c(0.0000000001, 0.000000001),  # Set the breaks for low and high
+    labels = c("low", "high")) +  # Set the corresponding labels
+  scale_alpha(range = c(0, .7), guide = "none") +
+  labs(title = "Tree Density", color = "") +
+  theme(legend.position = "bottom") + 
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(caption = "Tree Density is measured by \n number of trees in the block group") +
+  mapTheme()
+
+# NEAREST LITTER TO HOUSE
+
+litterindex <- st_read("https://opendata.arcgis.com/datasets/04fa63e09b284dbfbde1983eab367319_0.geojson") %>%
+  st_transform('EPSG:2272') %>% 
+  rename(litterscore = HUNDRED_BLOCK_SCORE) %>% 
+  rename(littergrade = SCORE_COLOR)
+
+nearest_litter <- st_nearest_feature(sales2023, litterindex)
+sales2023$litterscore <- litterindex$litterscore[nearest_litter]
+sales2023$littergrade <- litterindex$littergrade[nearest_litter]
+
+sales2023 <- sales2023 %>%
+  mutate(litterscore = round(litterscore, 2))
+
+litter_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, fill = "gray20", color = "gray40") +
+  stat_density2d(data = data.frame(st_coordinates(litterindex)),
+                 aes(X, Y, fill = ..level.., alpha = ..level..),
+                 size = 0.01, bins = 30, geom = 'polygon') +
+  scale_fill_gradient(low = "#E3D26F", high = "#36151E", name = "",
+                      breaks = c(0.0000000002, 0.0000000006),
+                      labels = c("low", "high")) +
+  scale_alpha(range = c(0, .7), guide = "none") +
+  labs(title = "Litter Score", color = "") +
+  theme(legend.position = "bottom") + 
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(caption = "Litter Score is based on the Litter Index \ndeveloped by the City of Philadelphia") +
+  mapTheme()
+
+# plot two maps
+plot_grid(trees_plot, litter_plot, ncol = 2, align = "v")
+
+```
+
+Interestingly, these two environmental data points may send mixed signals. Where there are more trees, there is more litter. Since tree density and litter conditions send strong visual cues to potential buyers of the level of care of the neighborhood, the impact of these variables on the model may strengthen or dilute the results. 
+
+
+# **Build Prediction Models**
+
+*“All models are wrong, but some are useful.”*
+*- George Box*
+
+
+Zestimate seeks to predict housing prices. Predicting city trends is fraught. Oftentimes unpredictable political decisions such as post-war state-sponsored suburbanization (aka white flight) buck trend predictions. There is no model than account for every unforeseeable scenario. However as previously discussed, useful models are generalizable. Building a useful prediction model requires feature selection and feature engineering. These features are then used to train a model to recognize patterns associated with sale price. The predictive model will use those patterns to produce a Zestimate. While the nearest prices of nearby sales are likely a fine starting point to build Zestimate, including local intelligence will certainly strengthen the product.
+
+
+## Categorize Variables
+
+This study uses the hedonic model [(reference)](https://link.springer.com/referenceworkentry/10.1007/978-94-007-0753-5_1279) theoretical framework that deconstructs housing prices into three categories: 
+
+1. Internal Characteristics  
+2. Public Services and Disamenities
+3. Spatial Process of Prices  
+
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, comment = NA}
+
+# SELECTING VARIABLES TO INCLUDE IN MODEL
+
+## PREPPING SALES DATA INTO MODEL V CHALLENGE
+
+sales2023.mod <- sales2023 %>%
+  filter(toPredict == "MODELLING")
+
+sales2023.chal <- sales2023 %>%
+  filter(toPredict == "CHALLENGE")
+
+all_var <- c("objectid", "census_tract","GEOID", "toPredict","sale_price", "Neighborhood", "fireplaces", "garage_spaces", "number_of_bathrooms", "number_of_bedrooms", "number_stories", "total_area", "total_livable_area", "year_built","historic", "holc_grade", "price_lag", "trees", "litterscore", "TotalPop", "MedHHInc", "pctdetached", "pctmultifam_small", "hwy_grade")
+
+sales2023.select <- sales2023.mod %>% 
+  dplyr::select(all_of(all_var)) %>%
+  na.omit()
+
+sales2023.summary <- sales2023.select %>%
+  st_drop_geometry() %>% 
+  select(-c(objectid, census_tract, GEOID, toPredict))
+
+
+# table of summary statistics with variable descriptions. Sort these variables by their category (internal characteristics, amenities/public services or spatial structure). Check out the `stargazer` package for this.
+
+categories_to_include <- c("Amenities / Public Services", "Internal Characteristic", "Spatial Process")
+
+#subsetting categories
+
+#internal characteristics
+InternalCharacteristics <- sales2023 %>%
+  dplyr::select("fireplaces", "garage_spaces", 
+          "number_of_bathrooms", "number_of_bedrooms", "number_stories", 
+           "total_area", "total_livable_area", "year_built", "historic", "sale_price")
+
+stargazer(as.data.frame(InternalCharacteristics), type="text", digits=1, title = "Internal Characteristics", out = "Training_PHLInternal.txt", omit.summary.stat = "N")
+
+#amenities/public services
+
+Amenities_Public_Services <- sales2023 %>%
+  dplyr::select("Neighborhood", "trees", "TotalPop", "MedHHInc", "pctdetached", "pctmultifam_small", "litterscore")
+
+stargazer(as.data.frame(Amenities_Public_Services), type="text", digits=1, title = "Public Services and Disamenities", out = "Training_PHLInternal.txt", omit.summary.stat = "N")
+
+#spatial process
+
+Spatial <- sales2023 %>%
+  dplyr::select("price_lag")
+
+stargazer(as.data.frame(Spatial), type="text", digits=1, title = "Spatial Process of Prices", out = "Training_PHLInternal.txt", omit.summary.stat = "N")
+
+
+
+
+```
+
+As we feature select and engineer, here are some important takeaways from the above summary tables: 
+
+* "price_lag" is the weighted average of nearby sales. These values are closely mirrored by actual sale price. Nearby prices are likely very influential so it is important to select features that can tell another side of the story. 
+* Sales price ranges considerably in Philadelphia, and identifying other data that contains the same variety may be influential to help inform spatial price variation.
+* The variation of trees is quite high, with a minimum of only 2 in some areas, and a maximum of nearly 2150. This may be error or it may be important disparity to account for.
+* Total Population is based on census block groups which are engineered to normalize to 600 to 3,000 people. 
+
+
+
+## Test for Correlation
+
+The goal is to select variables that most significantly correlate to sale price to include in the predictive model. Correlation is a type of association test. Are sale prices more closely associated to square footage or to number of bedrooms? These are the types of subtle but important distinction we want to seek out. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+# CORRELATION MATRIX OF VARIABLES
+
+numericVars <- sales2023.select %>%
+  st_drop_geometry() %>%
+  select(-toPredict, -GEOID, -objectid, -census_tract) %>%
+  select(-holc_grade, -hwy_grade, -historic, -Neighborhood) #remove categorical variables for corrtest
+
+price.corr <- corr.test(numericVars)
+
+if (sum(is.na(numericVars)) > 0) {
+  # Handle missing values (e.g., impute or remove)
+  numericVars <- na.omit(numericVars)  # Remove rows with missing values
+}
+
+correlation_matrix <- round(cor(numericVars), 1)
+p_values <- cor_pmat(numericVars)
+
+ggcorrplot(
+  correlation_matrix,
+  p.mat = p_values,
+  colors = c("#36151E", "white", "#197991"),
+  type = "lower",
+  insig = "blank"
+) +
+labs(title = "Degrees of Correlation to Sale Price") +
+  annotate(
+  geom = "rect",
+  xmin = .5, xmax = 16, ymin = .5, ymax = 1.5,
+  fill = "transparent", color = "red", alpha = 0.5
+)
+
+``` 
+
+The correlation matrix revealed strong positive and negative correlations. These are the primary variables to note for further engineering: 
+
+* Fireplaces
+* Number of bathrooms
+* Total livable area (sf)
+* Tree density 
+* Median Household Income
+* Litter conditions
+* Price lag
+
+It is important to note where variables correlate with each other as well. Price lag and median income had very strong positive correlation with one another, as did number of bathrooms and number of bedrooms. The number of bedrooms and the number of bathrooms are highly correlated to one another. Therefore to avoid multicollinearity, or two variables telling the same story, we will focus on number of bathrooms since it is also more correlated to sale price.
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+# str(sales2023.select)
+
+# Create 4 home price correlation scatterplots that you think are of interest (using open data variables)
+
+#MedHHInc, trees, price_lag, litterscore
+
+st_drop_geometry(sales2023.select) %>% 
+  dplyr::select(sale_price, MedHHInc, trees, price_lag, litterscore) %>%
+  gather(Variable, Value, -sale_price) %>% 
+   ggplot(aes(Value, sale_price)) +
+     geom_point(size = .5) + geom_smooth(method = "lm", se=F, colour = "#D52F4D") +
+  facet_wrap(~Variable, ncol = 2, scales = "free", labeller = labeller(Variable = c(price_lag = "Price Lag", MedHHInc = "Median Income", trees = "Tree Density", litterscore = "Litter Conditions"))) +
+     labs(title = "Price as a function of select variables") +
+     plotTheme()
+```
+
+The relationship between sale price and median income and tree density are similarly positive, where as litter is negative. The correlation between price lag and sale price is nearly 1, which indicates a very tight fit (as supported by the values in the categorizing summary table.)
+
+
+
+## Examine Spatially
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, out.width = '100%'}
+
+# Create 3 maps of the 3 most interesting variables.
+
+plot_MedHHInc <- ggplot() +
+  geom_sf(data = blocks21.sf, color = "gray70") +
+  geom_sf(data = sales2023, aes(colour = q5(MedHHInc)), 
+          show.legend = "point", size = .5) +
+  scale_colour_manual(values = rev(palette),
+                   labels=qBr(sales2023,"MedHHInc"),
+                   name="Median\nIncome") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  mapTheme()
+
+plot_price_lag <- ggplot() +
+  geom_sf(data = blocks21.sf, color = "gray70") +
+  geom_sf(data = sales2023, aes(colour = q5(price_lag)), 
+          show.legend = "point", size = .5) +
+  scale_colour_manual(values = rev(palette),
+                   labels=qBr(sales2023,"price_lag"),
+                   name="Nearby\nPrice") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  mapTheme()
+
+trees_plot <- ggplot() +
+  geom_sf(data = blocks21.sf, color = "gray70") +
+  stat_density2d(data = data.frame(st_coordinates(trees.sf)),
+                 aes(X, Y, fill = ..level.., alpha = ..level..),
+                 size = 0.01, bins = 50, geom = 'polygon') +
+  scale_fill_gradient(
+    low = "#ABCDA2",
+    high = "#4B7740", 
+    name = "Tree Density") +
+  scale_alpha(range = c(0, .5), guide = "none") +
+mapTheme()
+
+plot_grid(plot_MedHHInc, plot_price_lag, trees_plot, align = "v", ncol = 2)
+
+```
+
+Spatially, different patterns emerge. For instance, Center City has high tree density, high median income, and high average nearby prices despite being historically marginalized by redlining in the 1930s. North Philadelphia experiences the inverse of these trends, as do many parts of West Philadelphia further from University City. Spatial exploration reinforces the breadth of variable selection.
+
+
+## Filter Data
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+#Filter out outliers discovered in summary statistics.
+sales2023.select <- sales2023.select %>%
+   filter(sale_price <= 3500000, garage_spaces < 4, total_livable_area < 6500,
+          trees <= 1000)
+```
+After identifying correlated variables and looking at summary statistics, we also plotted the distribution of some key characteristics to identify any outliers possibly skewing the data. See Appendix A for scatterplots that visualize the outliers that were filtered out.
+
+Data Filters: 
+
+* Sale price <= $3,500,000
+* Trees < 1000
+* Garage Spaces < 4
+* Total Livable Area < 6,500 sf 
+
+
+
+# **Train and Test Prediction Models**
+
+The way the prediction model works is that we will train it to understand patterns about the relationship between sale price and our selected variables. Then we will test a portion of the data to see how well it performs. We use a 60:40 data partition to training and test, respectively.
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+#take note: all of these are categorical. Specifying categorical variables, fixed effects so the model is trained
+
+inTrain <- createDataPartition(
+              y = paste(sales2023.select$holc_grade, sales2023.select$historic, sales2023.select$Neighborhood),
+              p = .60, list = FALSE)
+philly.training <- sales2023.select[inTrain,] 
+philly.test <- sales2023.select[-inTrain,]  
+```
+
+We established the variables of the model. Now, we need to formulate the best combination of those variables to predict sale price. To begin, we start with a simple model only based on price lag, and then we add and subtract variables and analyze if they strengthen or weaken the model.
+
+**Price Lag Only Model:**
+
+Considering the strong association between sale price and price lag, we developed a price lag only regression. The price lag only regression is statistically significant (p-value < 0.05) however its R-squared value indicates that approximately **57.34%** of the variation in the dependent variable, sale_price, is explained by price lag. 
+
+**Local Intelligence Model:**
+
+Let's see how including local intelligence variables impacts the regression. A regression that includes a 'kitchen sink' of variables from our data sources including but not limited to fireplaces, number of bathrooms, redlining grade, trees, and litter performs better with an R-squared value that indicated approximately **73.44%** of the variation in sale price is explained by local intelligence + price lag.
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+#Price Lag only model
+reg.int <- lm(sale_price ~ price_lag, data = as.data.frame(philly.training))
+
+#Local Intelligence Regression 
+var_all <- c("sale_price", "Neighborhood", "fireplaces", "garage_spaces", "number_of_bathrooms", "number_of_bedrooms", "number_stories", "total_area", "total_livable_area", "year_built","historic", "holc_grade", "price_lag", "trees", "litterscore", "TotalPop", "MedHHInc", "pctdetached", "pctmultifam_small", "hwy_grade")
+
+reg_all <-
+  lm(sale_price ~ ., data = as.data.frame(philly.training) %>% 
+                             dplyr::select(var_all))
+``` 
+
+To ensure that the Local Intelligence Regression does not have multicollinearity, or multiple values telling the same story about sale price, we use a series of tests. The first test, **VIF**, indicates that Neighborhood and Redlining Grade have very high VIF scores relative to other variables and are potentially conflicting. To further investigate these categorical (non-numeric) variables, we performed a **chi-square test** which reveals that they do have high collinearity. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results='hide', comment = NA}
+#test for multicollinearity of reg_all
+library(car)
+vif(reg_all)
+#neighborhood (10221.05) and holc_grade (153.67) have very high vif scores compared to other variables.
+
+#checking chisquare on categorical for collinearity 
+chi_test <- table(philly.training$Neighborhood, philly.training$holc_grade)
+chisq.test(chi_test)
+
+#remove holc_grade bc of high collinearity with Neighborhood
+
+reg_slim <- lm(sale_price ~ Neighborhood + MedHHInc + price_lag + trees + number_of_bathrooms + total_livable_area + litterscore + number_stories + year_built, data = as.data.frame(philly.training))
+
+```
+
+**Local Regression Slim Model:**
+
+The next regression iteration removed Redlining Grade as well as other variables that presented less association with sale price. This slimmed down regression performed marginally less well than the 'kitchen sink' with an R-Squared value of 72.97% variance explained. 
+
+R-Squared is not the only measure of fit. The second and third regressions have a lower AIC compared to price lag only is good sign of the models fit and leanness and meanness of including local intelligence generally. We also performed a likelihood ratio test which indicates a high chi-square for the 'kitchen sink' so while both are stat significant, the second regression seems to fit the sales data best.
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results='hide'}
+AIC(reg.int, reg_all, reg_slim) #lower AIC compared to intercept is good sign of the models fit and leanness and meanness.
+
+lrtest(reg.int, reg_all, reg_slim) #likelihood ratio test show a high chisq for reg_all so while both are stat significant, reg_all seems to fit the data best.
+
+aic_table <- data.frame(
+  Regression = c("Price Lag Only", "Local Intel", "Local Intel Slim"),
+  AIC = c(373654.6, 367160.2, 367393.4))
+
+chi_table <- data.frame(
+  Regression = c("Local Intel", "Local Intel Slim"),
+  Chi_Square = c(6818.45, 259.24),
+  Significance = c("<0.05 ***", "<0.05 ***")
+)
+```
+
+``` {r echo = FALSE, warning = FALSE, message = FALSE, out.width = '50%'}
+kable(aic_table, caption = "AIC Value per Regressions", format = "html") %>%
+  kable_material_dark() %>%
+  column_spec(column = 2, width = "20%", extra_css = "text-align:center;")
+
+kable(chi_table, caption = "Chi-Square per Regression", format = "html") %>%
+  kable_material_dark() %>%
+  column_spec(column = 3, width = "20%", extra_css = "text-align:center;")
+```
+
+**With all this in mind, the predictive model will be trained with second regression that features a breadth of local intelligence features.**
+
+*Here is an in-depth comparative table between regressions:* 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+
+#compare kitchen sink and slim regressions
+
+coef_all <- summary(reg_all)$coef
+coef_slim <- summary(reg_slim)$coef
+
+coef_df_all <- data.frame(
+  Model = c("reg_all"),
+  Coefficients = rownames(coef_all),
+  Estimate_all = coef_all[, 1],
+  Std.Error_all = coef_all[, 2],
+  p_value_all = coef_all[, 4])
+
+
+coef_df_slim <- data.frame(
+  Model = c("reg_slim"),
+  Coefficients = rownames(coef_slim),
+  Estimate_slim = coef_slim[, 1],
+  Std.Error_slim = coef_slim[, 2],
+  p_value_slim = coef_slim[, 4]
+)
+
+left_merged_kable <- merge(coef_df_all, coef_df_slim, by = "Coefficients", all.x = TRUE) %>%
+  rename("Regression All" = Model.x, "Regression Slim" = Model.y)
+
+kable(left_merged_kable, format = "html", caption = "Note: NAs are where variables were not included for both Regressions") %>% 
+  kable_styling("striped", full_width = F) %>%
+  scroll_box(width = "800px", height = "500px")
+
+```
+
+## Understand Errors
+
+Analyzing the mean absolute error of the regression reveals the regression's accuracy. At \$67,083, the error is not trivial considering the mean sale price is \$229,000. The Mean Absolute Percent Error confirms that the model errs by 38%. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+
+philly.test <- philly.test %>%
+  mutate(Regression = "Baseline Regression",
+         sale_price.Predict = predict(reg_all, philly.test), 
+         sale_price.Error = sale_price.Predict - sale_price,
+         sale_price.AbsError = abs(sale_price.Predict - sale_price),
+         sale_price.APE = (abs(sale_price.Predict - sale_price)) / sale_price.Predict)%>%
+  filter(sale_price < 3500000)
+
+#MAE
+mae <- round(mean(philly.test$sale_price.AbsError, na.rm = TRUE), 2)
+
+#MAPE
+mape <- round(mean(philly.test$sale_price.APE, na.rm = TRUE) * 100, 2)  
+
+#Summary table of MAPE vs MAE 
+results_df <- data.frame(
+  Metric = c("Mean Absolute Error (MAE)", "Mean Absolute Percentage Error (MAPE)"),
+  Value = c(mae, paste0(mape, "%"))  # Append "%" to MAPE value for percentage
+)
+
+kable(results_df) %>%
+  kable_material_dark(full_width = F) %>%
+  column_spec(column = 2, width = "20%", extra_css = "text-align:center;")
+```
+
+Visualizing the data can also be instrumental in diagnosing the goodness of a model's fit. Given how tightly aligned the observed and predicted prices are we performed dozens of variable combinations to rule out over fitting. We are confident that our variables are generalizable and do not over-fit. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, out.width = '100%'}
+# Predicted prices as a function of observed prices
+
+ggplot(philly.test, aes(x = sale_price, y = sale_price.Predict)) +
+  geom_point(size = 2, alpha = 0.7, color = "#A5C4D4") +
+stat_smooth(aes(sale_price, sale_price), 
+             method = "lm", se = FALSE, size = 1, colour="#A5C4D4") + 
+  stat_smooth(aes(sale_price.Predict, sale_price), 
+              method = "lm", se = FALSE, size = 1, colour="#D52F4D") +  
+  labs(
+    title = "Predicted vs Observed Prices",
+    subtitle = "Blue line is predicted. Red line is observed.",
+    x = "Observed Prices",
+    y = "Predicted Prices"
+  ) +
+  plotTheme()
+```
+
+
+## Cross Validation
+
+Cross validation is a way to test out the model on a subset of the data to see if the results hold. How this test works, is we create 100 random subsets to measure the goodness of fit. If the mean absolute error of each subset was approximately the same, we could deduce that the model is likely to generalize to new data. Unfortunately, we do not see clustered MAE. This spread out distribution of MAE indicates that the subsets produced different results. So while the model is potentially not over-fitting, it is potentially not powerful enough (which is confirmed by the high 38% MAE).  
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results = 'hide', comment = NA}
+## Cross Validation
+
+fitControl <- trainControl(method = "cv", number = 100)
+set.seed(825)
+
+reg.cv <- 
+  train(sale_price ~ ., data = st_drop_geometry(sales2023.select) %>% 
+                                dplyr::select(var_all), 
+     method = "lm", trControl = fitControl, na.action = na.pass)
+
+reg.cv
+
+reg.cv$resample[1:10,]
+
+ggplot(as.data.frame(reg.cv$resample), aes(x = MAE)) +
+  geom_histogram(binwidth = 2500, fill = "#A5C4D4") +
+  geom_vline(aes(xintercept = mean(reg.cv$resample$MAE)), colour = "red", size = 1) +
+  labs(
+    title = "Distribution of MAE",
+    subtitle = "Observed MAE (red line)",
+    x = "Mean Absolute Error (MAE)",
+    y = "Count"
+  ) +
+  plotTheme()
+```
+
+
+## Spatial Lag Errors
+
+To understand the relationship between errors spatially, we mapped the error across Philadelphia. The map does not immediately indicate any clustering, however, a Moran's I test takes a closer look at spatial clustering.
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, results='hide', comment = NA}
+#Spatial Lags Error
+
+# What is the relationship between errors? Are they clustered? Is the error of a single observation correlated with the error of nearby observations?
+
+coords.test <-  st_coordinates(philly.test) 
+
+neighborList.test <- knn2nb(knearneigh(coords.test, 5))
+
+spatialWeights.test <- nb2listw(neighborList.test, style="W")
+ 
+philly.test %>% 
+  mutate(lagPriceError = lag.listw(spatialWeights.test, sale_price.Error)) 
+
+philly.test <- philly.test[is.finite(philly.test$sale_price.Error), ]
+philly.test$sale_price.Error <- as.numeric(philly.test$sale_price.Error)
+
+test_data <- philly.test %>%
+  group_by(Neighborhood) %>%
+  mutate(MeanPrice = mean(sale_price))
+
+test_data <- test_data %>%
+  group_by(Neighborhood) %>%
+  mutate(MAPE = mean(sale_price.APE)) %>%
+  filter(MAPE > 0) %>% 
+  filter(MAPE < 5)
+
+ggplot() +
+  geom_sf(data = blocks21.sf, color = "grey70") +
+  geom_sf(data = test_data, aes(colour = q5(sale_price.Error)), 
+          show.legend = "point", size = .25) +
+  scale_colour_manual(values = palette,
+                   labels=qBr(test_data,"sale_price.Error"),
+                   name="Error\nRanges") +
+  labs(title="Map of Price Absolute Errors") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  mapTheme()
+
+```
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, comment = NA, results = 'hide'}
+## Do Errors Cluster? Using Moran's I
+
+moranTest <- moran.mc(philly.test$sale_price.Error, 
+                      spatialWeights.test, nsim = 999)
+moranTest
+
+ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
+  geom_histogram(binwidth = 0.005, fill = "#A5C4D4") +
+  geom_vline(aes(xintercept = moranTest$statistic), colour = "#D52F4D",size=1) +
+  scale_x_continuous(limits = c(-1, 1)) +
+  labs(title="Observed and permuted Moran's I",
+       subtitle= "Observed Moran's I of 0.073929 in red",
+       x="Moran's I",
+       y="Count") +
+  plotTheme()
+
+```
+
+The Moran's I value of 0.08356 suggests that there is some spatial autocorrelation in the residuals, but it's not particularly strong. In other words, while similar values (residuals) do tend to be somewhat spatially clustered, the effect is not very pronounced. The alternative hypothesis "greater" indicates that the observed spatial autocorrelation is stronger than what we'd expect by random chance. However, the fact that the Moran's I value is close to zero means that nearby locations have only slightly more similar prediction errors than would be expected under random spatial distribution.
+
+So if the error is not explained spatially, perhaps it can be explained by difference in housing quality or other local intelligence features. 
+
+Additionally, when we examine whether the mean absolute percentage error is clustered around any neighborhoods, we see that only two neighborhoods in North Philadelphia have slightly higher MAPEs than the other neighborhoods, and only at 8% compared to less than 4%. This indicates that the model is generalizable to new test information. 
+
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+#provide a map of mean absolute percentage error (MAPE) by neighborhood.
+
+st_drop_geometry(philly.test) %>%
+  group_by(Neighborhood) %>%
+  summarize(mean.MAPE = mean(sale_price.APE, na.rm = T)) %>%
+  ungroup() %>% 
+  left_join(hoods, by = c("Neighborhood" = "Neighborhood")) %>%
+    st_sf() %>%
+ ggplot() + 
+      geom_sf(data = blocks21.sf, color = "gray70") +    
+    geom_sf(aes(fill = mean.MAPE)) +
+      geom_sf(data = philly.test, colour = "white", size = .5, alpha = 0.2) +
+      scale_fill_gradient(low = palette[1], high = palette[5],
+                          name = "MAPE") +
+      labs(title = "Mean test set MAPE by neighborhood",
+           caption = "White dots represent each sale in 2023.") +
+      mapTheme()
+
+  
+#Provide a scatterplot of MAPE by neighborhood as a function of mean price by neighborhood.
+
+ggplot(test_data) +
+  geom_point(aes(MeanPrice, MAPE)) +
+  geom_smooth(method = "lm", aes(MeanPrice, MAPE), se = FALSE, colour = "#D52F4D") +
+  labs(title = "MAPE by Neighborhood as a function of mean price by Neighborhood",
+       x = "Mean Home Price", y = "MAPE") +
+  plotTheme()
+
+```
+
+## Predict Prices
+
+With the exception of Center City, which more recently flipped from a "D" grade (re: Redlining) residential neighborhood to an expensive one, housing prices are sticky. Areas like Chestnut Hill or Fairmount were historically highly valued, are today, and will continue to be in the future according to this model. 
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+# Provide a map of your predicted values for where ‘toPredict’ is both “MODELLING” and “CHALLENGE”.
+
+inTrain.both <- createDataPartition(
+              y = paste(sales2023$holc_grade, sales2023$historic, sales2023$Neighborhood),
+              p = .60, list = FALSE)
+
+philly.training.both <- sales2023[inTrain.both,] 
+philly.test.both <- sales2023[-inTrain.both,]  
+
+reg_all.both <- 
+  lm(sale_price ~ ., data = as.data.frame(philly.training.both) %>% 
+                             dplyr::select(var_all))
+
+philly.test.both <- philly.test.both %>%
+  mutate(Regression = "Baseline Regression",
+         sale_price.Predict = predict(reg_all.both, philly.test.both), 
+         sale_price.Error = sale_price.Predict - sale_price,
+         sale_price.AbsError = abs(sale_price.Predict - sale_price),
+         sale_price.APE = (abs(sale_price.Predict - sale_price)) / sale_price.Predict)%>%
+  filter(sale_price < 5000000)
+
+ggplot() +
+  geom_sf(data = blocks21.sf, color = "gray70") +
+  geom_sf(data = philly.test.both, aes(colour = q5(sale_price.Predict)), 
+          show.legend = "point", size = .75) +
+  scale_colour_manual(values = palette,
+                   labels=qBr(test_data,"sale_price.Predict"),
+                   name="Prices") +
+  labs(title="Predicted Sale Prices") +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  mapTheme()
+
+```
+
+## Contextualize
+
+The income context of Philadelphia is important to consider when evaluating our model. When dividing Philadelphia into low or high income groups (bsed on the median income), there is clear clustering of high incomes in the center, northwest and northeast outskirts of the city, and lower incomes in dividing the outer and inner areas. Price absolute errors are clustered by income more so than by neighborhood boundary, which suggests income of nearby residents is highly influential in test set. 
+
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+
+blocks21.sf <- blocks21.sf %>% 
+  mutate(incomeContext = ifelse(MedHHInc > median(blocks21.sf$MedHHInc), "High Income", "Low Income"))
+
+ggplot() + geom_sf(data = na.omit(blocks21.sf, color = "gray70"), aes(fill = incomeContext)) +
+    scale_fill_manual(values = c("#4B7740", "#A5C4D4"), name="Income") +
+    labs(title = "Median Income by Block Group") +
+    mapTheme() + 
+  theme(legend.position="bottom")
+
+```
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE}
+st_join(philly.test, blocks21.sf) %>% 
+  filter(!is.na(incomeContext)) %>%
+  group_by(Regression, incomeContext) %>%
+  summarize(mean.MAPE = scales::percent(mean(sale_price.APE, na.rm = T))) %>%
+  st_drop_geometry() %>%
+  spread(incomeContext, mean.MAPE) %>%
+  kable(caption = "Test set MAPE by neighborhood income context") %>%
+  kable_material_dark() %>%
+  column_spec(column = 2, width = "20%", extra_css = "text-align:center;"
+               )
+```
+
+# **Conclusion**
+
+## Discussion
+
+The study strongly suggests that local intelligence is an effective variable to predict housing prices. While nearby housing prices are a strong predictor of housing prices, combining nearby prices with local intelligence is an even stronger predictor. 
+
+The variables in the study with the strongest association to sale price, such as livable area, neighborhood, median household income, tree density, and litter conditions drive the the regression's goodness of fit. Other variables affect the model at the margins. 
+
+In Philadelphia and likely in many major metro areas across the United States, downtown revitalization in the past 30 years disproportionately pushed housing prices. It would be interesting to further develop this variable beyond redlining and today's pricing to better capture how value is dispersed across modern U.S. cities. If we could weigh factors, such as FAR or % of permits denied, that ultimately encourage or constrict development, it could make neighborhood and historical pricing variables even stronger. 
+
+The current model predicts 74% of the variation in price. Spatially, we do see that areas like Center City and Chestnut Hill are going to continue to achieve high sales prices. The model predicts these trends particulary well. However, where the model could be impoved is how the model may be discounting the rapid popularity and value in areas like Fishtown where development is new and abundant. Spatially, this model does not account for where new development is in the works. Understanding how real estate development investment can drive housing prices, but an oversupply could potentially push pricing down is important to factor into our predictions, too. Perhaps the model could predict more variation in price with this data split into sales and rentals. 
+
+Also important to note is the impact of internal characteristics on predicted price. While the model does predict on liveable area and features like fireplaces and number of bathrooms relatively well, it does not account for quality. Our MAE of around $70k could be explained by the interior finishes between two otherwise identical properties. Variables that can correct for quailty could be an effective addition to the model. 
+
+## Recommendation 
+
+We recommend that Zillow incorporate local intelligence into its Zestimate algorithm. Our model is a solid starting point that can certianly be improved upon with additional feature selection and engineering. While our model predicts fairly well, it could be improved in how well accurate predictions are dispersed across the city. Reducing and clustering absolute errors will be central to future iterations.
+
+While  *Amenities, dis-amenities and neighborhood spatial characteristics are often far more predictive of home prices than internal characteristics*, these may be different in Philadelphia than in other cities. The key is that disparity in these spatial characteristics may highlight where there are disparities, and in turn inform where price may change significantly. In a city where trees, litter, or income are uniformly distributed, these characteristics will not impact price. Price is in many ways, therefore, a byproduct of disparities, creating tension between neighborhoods that have what is ultimately not available throughout the rest of a city. 
+
+We recommend future iterations of the model include variables that offer nuance between properties that may be otherwise identical in terms of form and location. Furthermore, variables that account for urban growth dynamics such as where building permits are issued relative to current density. This kind of variable could help the model account for pricing trends that are not present today but may be in the future. Another example of accounting for the impact of future development in Philadelphia is  distance to transit since the entire trolley system is undergoing an extensive modernization. Lastly, variables that capture job centers since people often choose their home based on access or proximity to jobs or potential jobs could explain the pricing disparity between neighborhoods, especially those in downtown. We are confident with this model, Zillow is off to a great start to evolve its Zestimate score. 
+
+# Appendices
+
+## Appendix A: Filtering Data
+
+We want to note where outliers were identified and subsequently filtered to ensure the results were not skewed. For sales prices, we remove any sales above 3,500,000 since this is significantly higher than even the most expensive homes. We filtered sales with more than 4 garages because the values larger were over 70, likely representing an entire building rather than an individual unit. Additionally, parks with high concentrations of trees likely created outlier tree density values, when in reality the homes near them were not nearly as tree covered. Therefore, we only included values where trees were less than 1,000 in the block group, an already very high number. Finally, we only included homes where the total livable area was less than 6,500 to remove extreme outlier homes that were also likely for entire buildings, rather than one unit.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide', comment = NA}
+
+plot(sales2023$sale_price, ylim = c(0,6000000), main="Sales Prices") +
+abline(h = 3500000, col = "#D52F4D") 
+
+plot(sales2023$garage_spaces, ylim = c(0, 80), main="Garage Spaces") + 
+abline(h = 4, col = "#D52F4D") 
+
+plot(sales2023$total_livable_area, ylim = c(0, 150000), main="Total Livable Area") +
+  abline(h = 6500, col = "#D52F4D") 
+
+plot(sales2023$trees, ylim = c(0, 10000), main="Trees") + 
+  abline(h = 1000, col = "#D52F4D") 
+```
+
+## Appendix B: VIF Scores
+
+``` {r echo = TRUE, warning = FALSE, message = FALSE, comment = NA}
+
+VIF_table <- data.frame(
+  Variable = c("Neighborhood", "fireplaces", "garage_spaces", "number_of_bathrooms", "number_of_bedrooms", "number_stories", "total_area", "total_livable_area", "year_built", "historic", "holc_grade", "price_lag", "trees", "litterscore", "TotalPop", "MedHHInc", "pctdetached", "pctmultifam_small", "hwy_grade"),
+  GVIF = c(9643.267543, 1.338493, 1.760822, 1.943907, 2.028490, 1.515672, 1.469092, 1.868998, 1.453886, 1.690424, 150.815224, 3.716039, 2.010839, 1.491015, 1.506094, 2.286827, 1.926168, 1.415946, 1.277872)
+)
+
+kable(VIF_table, caption = "VIF Values", format = "html") %>%
+  kable_styling()
+```
+
+
+```{r include = FALSE, comment = NA}
+# for prediction 
+
+#apply same filters as before to avoid out-of-range values from the prediction producing NAs
+sales2023 <- sales2023 %>%
+   filter(sale_price <= 3500000, garage_spaces < 4, total_livable_area < 6500,
+          trees <= 1000)
+
+reg_pred <- lm(sale_price ~ MedHHInc + price_lag + trees + total_livable_area, data = st_drop_geometry(sales2023) %>%
+             filter(toPredict == "MODELLING"))
+
+reg_pred <- 
+  lm(sale_price ~ ., data = st_drop_geometry(sales2023) %>% filter(toPredict == "MODELLING") %>%
+                             dplyr::select(var_all)) 
+
+
+sales2023.pred <- sales2023 %>%
+  mutate(Price.Predict = predict(reg_pred, sales2023))
+
+final_pred <- st_drop_geometry(sales2023.pred)%>%
+  filter(toPredict== "CHALLENGE")%>%
+  select(musaID, Price.Predict)%>%
+  mutate(team = "Laura and Alexa")
+
+final_pred
+write_csv(final_pred, "Laura and Alexa.csv")
+
+```
