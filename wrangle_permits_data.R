@@ -12,7 +12,19 @@ one_year_ago = (lubridate::ymd(Sys.Date()) - lubridate::years(1))
 
 
 building_perms_query <- sprintf("
-                  SELECT permitissuedate, typeofwork, ST_Y(the_geom) AS lat, ST_X(the_geom) AS lng
+                  SELECT 
+                  address,
+                  addressobjectid,
+                  approvedscopeofwork,
+                  commercialorresidential,
+                  opa_account_num,
+                  permittype,
+                  status,
+                  unit_num,
+                  unit_type,
+                  permitissuedate, 
+                  typeofwork, 
+                  ST_Y(the_geom) AS lat, ST_X(the_geom) AS lng
                   FROM permits
                   WHERE permitissuedate >= '%s' AND permitissuedate < '%s'
                  ", three_years_ago, one_year_ago)
