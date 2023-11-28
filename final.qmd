@@ -1,7 +1,7 @@
 ---
 title: "Predicting New Construction in Philadelphia"
 subtitle: "MUSA 508 Final Project"
-author: "Laura Frances and Nissim Lebovits, University of Pennsylvania"
+authors: "Laura Frances and Nissim Lebovits"
 date: today
 project:
   type: website
@@ -38,24 +38,11 @@ source("config.R")
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra")
 install_and_load_packages(required_packages)
 
-source("viz_utils.R")
+source("utils/viz_utils.R")
 
 options(scipen = 999, tigris_use_cache = TRUE, tigris_class = 'sf')
 
 crs <- 'epsg:2272'
-```
-
-```{r import}
-
-
-building_permits <- readRDS(building_permits_path)
-
-permits_net <- st_join(phl_grid, building_permits) %>%
-                  group_by(grid_id) %>%
-                  summarize(permits_count= sum(permits_count),
-                            permits_count = ifelse(is.na(permits_count), 0, permits_count))
-
-full_net <- left_join(full_net, st_drop_geometry(permits_net), by = "grid_id") %>% st_as_sf()
 ```
 
 ```{r make grid}
@@ -74,22 +61,37 @@ phl_grid <- phl_grid %>%
                 mutate(grid_id = 1:n())
 ```
 
+```{r import}
+
+# 
+# building_permits <- readRDS(building_permits_path)
+# 
+# permits_net <- st_join(phl_grid, building_permits) %>%
+#                   group_by(grid_id) %>%
+#                   summarize(permits_count= sum(permits_count),
+#                             permits_count = ifelse(is.na(permits_count), 0, permits_count))
+# 
+# full_net <- left_join(full_net, st_drop_geometry(permits_net), by = "grid_id") %>% st_as_sf()
+```
+
+
+
 ```{r wrangle}
 
-### spacial process vars--------------------------
-lag_net <- full_net %>%
-  transmute(
-         x = x,
-         grid_id = grid_id,
-         mapname = mapname,
-         count_complaints = count_complaints,
-         nb = st_contiguity(x),
-         wt = st_weights(nb),
-         lag_dumping = st_lag(count_complaints, nb, wt),
-         lag_vacant = st_lag(count_vacant, nb, wt),
-         lag_cars = st_lag(cars_count, nb, wt),
-         lag_outages = st_lag(outage_count, nb, wt),
-         lag_permits = st_lag(permits_count, nb, wt))
+# ### spacial process vars--------------------------
+# lag_net <- full_net %>%
+#   transmute(
+#          x = x,
+#          grid_id = grid_id,
+#          mapname = mapname,
+#          count_complaints = count_complaints,
+#          nb = st_contiguity(x),
+#          wt = st_weights(nb),
+#          lag_dumping = st_lag(count_complaints, nb, wt),
+#          lag_vacant = st_lag(count_vacant, nb, wt),
+#          lag_cars = st_lag(cars_count, nb, wt),
+#          lag_outages = st_lag(outage_count, nb, wt),
+#          lag_permits = st_lag(permits_count, nb, wt))
 ```
 
 ## Methods
