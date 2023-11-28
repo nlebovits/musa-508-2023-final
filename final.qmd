@@ -1,0 +1,127 @@
+---
+title: "Predicting New Construction in Philadelphia"
+subtitle: "MUSA 508 Final Project"
+author: "Laura Frances and Nissim Lebovits, University of Pennsylvania"
+date: today
+project:
+  type: website
+  output-dir: docs
+format: 
+  html:
+    embed-resources: true
+    toc: true
+    toc_float: true
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show the code"
+    number-sections: true
+editor: source
+editor_options:
+  markdown:
+    wrap: sentence
+execute:
+  warning: false
+  error: false
+  messages: false
+  echo: true
+  cache: false
+---
+
+## Summary
+
+## Introduction
+
+```{r setup}
+
+source("config.R")
+
+required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra")
+install_and_load_packages(required_packages)
+
+source("viz_utils.R")
+
+options(scipen = 999, tigris_use_cache = TRUE, tigris_class = 'sf')
+
+crs <- 'epsg:2272'
+```
+
+```{r import}
+base_url = "https://phl.carto.com/api/v2/sql"
+
+three_years_ago = (lubridate::ymd(Sys.Date()) - lubridate::years(3))
+one_year_ago = (lubridate::ymd(Sys.Date()) - lubridate::years(1))
+
+### building permits----------------------------------------
+# building_perms_query <- sprintf("
+#                   SELECT permitissuedate, typeofwork, ST_Y(the_geom) AS lat, ST_X(the_geom) AS lng
+#                   FROM permits
+#                   WHERE permitissuedate >= '%s' AND permitissuedate < '%s'
+#                  ", three_years_ago, one_year_ago)
+# 
+# building_permits <- st_as_sf(get_carto(building_perms_query,
+#                               format = 'csv',
+#                               base_url = base_url,
+#                               stringsAsFactors = FALSE) |>
+#                       dplyr::filter(
+#                              !is.na(lat),
+#                              !is.na(lng)),
+#                       coords = c("lng", "lat"),
+#                       crs = st_crs('EPSG:4326')) |>
+#                       st_transform(crs = st_crs("EPSG:2272")) %>%
+#                     mutate(permits_count = 1)
+
+building_permits_path <- "hw3_data/building_permits.geojson"
+# saveRDS(building_permits, building_permits_path)
+building_permits <- readRDS(building_permits_path)
+
+permits_net <- st_join(phl_grid, building_permits) %>%
+                  group_by(grid_id) %>%
+                  summarize(permits_count= sum(permits_count),
+                            permits_count = ifelse(is.na(permits_count), 0, permits_count))
+
+full_net <- left_join(full_net, st_drop_geometry(permits_net), by = "grid_id") %>% st_as_sf()
+```
+
+```{r make grid}
+### PHL bounds and grid----------------------------------------
+phl_path <- "https://opendata.arcgis.com/datasets/405ec3da942d4e20869d4e1449a2be48_0.geojson"
+phl <- st_read(phl_path, quiet = TRUE) %>%
+          st_transform(crs = crs)
+
+cellsize <- 1000
+
+phl_grid <- st_make_grid(phl, crs = crs, cellsize = cellsize, square = FALSE) %>% 
+                st_as_sf()
+
+phl_grid <- phl_grid[phl, ]
+phl_grid <- phl_grid %>%
+                mutate(grid_id = 1:n())
+```
+
+```{r wrangle}
+
+### spacial process vars--------------------------
+lag_net <- full_net %>%
+  transmute(
+         x = x,
+         grid_id = grid_id,
+         mapname = mapname,
+         count_complaints = count_complaints,
+         nb = st_contiguity(x),
+         wt = st_weights(nb),
+         lag_dumping = st_lag(count_complaints, nb, wt),
+         lag_vacant = st_lag(count_vacant, nb, wt),
+         lag_cars = st_lag(cars_count, nb, wt),
+         lag_outages = st_lag(outage_count, nb, wt),
+         lag_permits = st_lag(permits_count, nb, wt))
+```
+
+## Methods
+
+## Results
+
+## Discussion
+
+## Conclusion
+
+## Appendices
