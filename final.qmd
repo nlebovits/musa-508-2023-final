@@ -35,10 +35,14 @@ execute:
 
 source("config.R")
 
-required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra")
+required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
+                       "gganimate", "tmap", "gifski", "transformr")
 install_and_load_packages(required_packages)
 
 source("utils/viz_utils.R")
+
+select <- dplyr::select
+filter <- dplyr::filter
 
 options(scipen = 999, tigris_use_cache = TRUE, tigris_class = 'sf')
 
@@ -51,29 +55,68 @@ phl_path <- "https://opendata.arcgis.com/datasets/405ec3da942d4e20869d4e1449a2be
 phl <- st_read(phl_path, quiet = TRUE) %>%
           st_transform(crs = crs)
 
-cellsize <- 1000
+phl_bgs_path <- "https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson"
+phl_bgs <- st_read(phl_bgs_path, quiet = TRUE) %>%
+          st_transform(crs = crs) %>%
+          select(GEOID10)
 
-phl_grid <- st_make_grid(phl, crs = crs, cellsize = cellsize, square = FALSE) %>% 
-                st_as_sf()
+# cellsize <- 1000
+# 
+# phl_grid <- st_make_grid(phl, crs = crs, cellsize = cellsize, square = FALSE) %>% 
+#                 st_as_sf()
+# 
+# phl_grid <- phl_grid[phl, ]
+# phl_grid <- phl_grid %>%
+#                 mutate(grid_id = 1:n())
+```
 
-phl_grid <- phl_grid[phl, ]
-phl_grid <- phl_grid %>%
-                mutate(grid_id = 1:n())
+```{r g}
+ggplot(phl_bgs) +
+  geom_sf()
 ```
 
 ```{r import}
+building_permits <- readRDS(building_permits_path)
+building_permits <- building_permits %>%
+                      mutate(permitissuedate = as.Date(permitissuedate),
+                             year = year(permitissuedate)) %>%
+                      filter(year != 2012)
 
-# 
-# building_permits <- readRDS(building_permits_path)
-# 
 # permits_net <- st_join(phl_grid, building_permits) %>%
-#                   group_by(grid_id) %>%
-#                   summarize(permits_count= sum(permits_count),
+#                   group_by(grid_id, year) %>%
+#                   summarize(permits_count = sum(permits_count),
 #                             permits_count = ifelse(is.na(permits_count), 0, permits_count))
-# 
-# full_net <- left_join(full_net, st_drop_geometry(permits_net), by = "grid_id") %>% st_as_sf()
+
+permits_bg <- st_join(phl_bgs, building_permits) %>%
+                  group_by(GEOID10, year) %>%
+                  summarize(permits_count = sum(permits_count),
+                            permits_count = ifelse(is.na(permits_count), 0, permits_count))
 ```
 
+
+
+```{r eda}
+ggplot(permits_bg, aes(x = as.factor(year))) +
+  geom_bar()
+
+ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
+  geom_histogram() +
+  facet_wrap(~year)
+
+ggplot(permits_bg %>% filter(year != 2012)) +
+  geom_sf(aes(fill = permits_count), color = NA) +
+  scale_fill_viridis_c() +
+  labs(title = "Building Permits per Block Group") +
+  facet_wrap(~year) +
+  theme_void()
+
+tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
+        tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher") +
+  tm_layout(frame = FALSE) +
+  tm_facets(along = "year")
+
+tmap_animation(tm)
+```
 
 
 ```{r wrangle}
