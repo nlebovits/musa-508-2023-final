@@ -1,5 +1,3 @@
-source("config.R")
-
 required_packages <- c("tidyverse", "sf", "rphl")
 install_and_load_packages(required_packages)
 
