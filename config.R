@@ -15,6 +15,8 @@ install_and_load_packages <- function(required_packages) {
   
   if (length(missing_packages) > 0) {
     message("Installing missing packages: ", paste(missing_packages, collapse = ", "))
+    
+    # Check for 'boxrdrive' package
     if ("boxrdrive" %in% missing_packages) {
       suppressWarnings({
         remotes::install_github("r-box/boxrdrive")
@@ -23,7 +25,18 @@ install_and_load_packages <- function(required_packages) {
         warning("'boxrdrive' package is not available for this version of R. Please check the installation.")
       }
     }
-    install.packages(setdiff(missing_packages, "boxrdrive"), quietly = TRUE)
+    
+    # Check for 'rphl' package
+    if ("rphl" %in% missing_packages) {
+      suppressWarnings({
+        remotes::install_github("CityOfPhiladelphia/rphl")
+      })
+      if (!require(rphl, quietly = TRUE)) {
+        warning("'rphl' package is not available for this version of R. Please check the installation.")
+      }
+    }
+    
+    install.packages(setdiff(missing_packages, c("boxrdrive", "rphl")), quietly = TRUE)
   }
   
   for(package.i in required_packages){
