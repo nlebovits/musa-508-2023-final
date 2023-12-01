@@ -32,11 +32,8 @@ execute:
 ## Introduction
 
 ```{r setup}
-
-source("config.R")
-
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
-                       "gganimate", "tmap", "gifski", "transformr", "ggpubr")
+                       "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest")
 install_and_load_packages(required_packages)
 
 source("utils/viz_utils.R")
@@ -48,6 +45,10 @@ lag <- dplyr::lag
 options(scipen = 999, tigris_use_cache = TRUE, tigris_class = 'sf')
 
 crs <- 'epsg:2272'
+
+roads <- read_sf('https://opendata.arcgis.com/datasets/261eeb49dfd44ccb8a4b6a0af830fdc8_0.geojson')
+
+broad_and_market <- roads %>% filter(ST_NAME %in% c('BROAD',"MARKET") | SEG_ID %in% c(440370, 421347,421338,421337,422413,423051,440403,440402,440391,440380))
 ```
 
 ```{r make grid}
@@ -59,9 +60,7 @@ phl <- st_read(phl_path, quiet = TRUE) %>%
 phl_bgs_path <- "https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson"
 phl_bgs <- st_read(phl_bgs_path, quiet = TRUE) %>%
           st_transform(crs = crs) %>%
-          select(GEOID10) %>%
-                  mutate(nb = st_contiguity(geometry),
-                         wt = st_weights(nb))
+          select(GEOID10)
 
 # cellsize <- 1000
 # 
@@ -85,7 +84,10 @@ building_permits <- building_permits %>%
                       mutate(permitissuedate = as.Date(permitissuedate),
                              year = year(permitissuedate)) %>%
                       filter(year != 2012,
-                             typeofwork == "NEW CONSTRUCTION")
+                             permittype == "RESIDENTIAL BUILDING")
+```
+
+```{r join}
 
 # permits_net <- st_join(phl_grid, building_permits) %>%
 #                   group_by(grid_id, year) %>%
@@ -96,6 +98,7 @@ building_permits <- building_permits %>%
 geoid_years <- expand.grid(GEOID10 = unique(phl_bgs$GEOID10),
                            year = unique(building_permits$year))
 
+
 # Joining your existing data with the complete grid
 permits_bg <- st_join(phl_bgs, building_permits) %>%
               group_by(GEOID10, year) %>%
@@ -104,17 +107,17 @@ permits_bg <- st_join(phl_bgs, building_permits) %>%
               right_join(geoid_years, by = c("GEOID10", "year")) %>%
               replace_na(list(permits_count = 0)) %>%
               left_join(phl_bgs, by = "GEOID10") %>%
-              st_as_sf()
+              st_as_sf() 
 
-# # Apply spatial lag for each group---NOT WORKING YET
-# permits_bg <- permits_bg %>%
-#               group_by(GEOID10, year) %>%
-#               mutate(lag_permits = st_lag(permits_count, nb, wt)) %>%
-#               ungroup()
 
-## calculate time lag
+### spat + temp lags----------------------------------
 permits_bg <- permits_bg %>%
-               arrange(GEOID10, year) %>%
+              group_by(year) %>%
+              mutate(nb = st_contiguity(geometry),
+                         wt = st_weights(nb),
+                      lag_spatial = st_lag(permits_count, nb, wt)) %>% # calculate spat lag
+              ungroup()%>%
+              arrange(GEOID10, year) %>% # calculate time lag
                mutate(
                  lag_1_year = lag(permits_count, 1),
                  lag_2_years = lag(permits_count, 2),
@@ -124,9 +127,9 @@ permits_bg <- permits_bg %>%
                  lag_6_years = lag(permits_count, 6),
                  lag_7_years = lag(permits_count, 7),
                  lag_8_years = lag(permits_count, 8),
-                 lag_9_years = lag(permits_count, 9)
+                 lag_9_years = lag(permits_count, 9),
+                 dist_to_2022 = 2022 - year
                )
-
 ```
 
 ```{r hmm}
@@ -135,7 +138,7 @@ permits_bg_long <- permits_bg %>%
                     st_drop_geometry() %>%
                     select(-c(nb, wt))%>%
                     pivot_longer(
-                      cols = starts_with("lag"),
+                      cols = c(starts_with("lag"), dist_to_2022),
                       names_to = "Variable",
                       values_to = "Value"
                     )
@@ -155,8 +158,17 @@ ggplot(building_permits, aes(x = as.factor(year))) +
 
 ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
   geom_histogram() +
-  labs("Permits per Block Group per Year") +
+  labs(title = "Permits per Block Group per Year",
+       subtitle = "Log-Transformed") +
+  scale_x_log10() +
   facet_wrap(~year)
+# 
+# tm_shape(permits_bg) +
+#   tm_polygons("spat_lag_permits", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+#   tm_facets(along = "year") +
+# tm_shape(broad_and_market) +
+#   tm_lines(col = "lightgrey") +
+#   tm_layout(frame = FALSE)
 ```
 
 ```{r gif}
@@ -165,32 +177,79 @@ ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
 
 tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
         tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
-  tm_layout(frame = FALSE) +
-  tm_facets(along = "year")
+  tm_facets(along = "year") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE) 
 
 suppressMessages(
-tmap_animation(tm, "permits_animation.gif")
+tmap_animation(tm, "permits_animation.gif", delay = 50)
 )
 ```
 
 ![Philadelphia Building Permits, 2013 - 2022](permits_animation.gif)
+### OLS Regression
+To begin, we run a simple regression incorporating three engineered groups of features: space lag, time lag, and distance to 2022. We include this last variable because of a Philadelphia tax abatement policy that led to a significant increase in residential development in the years immediately before 2022. We will use this as a baseline model to compare to our more complex models.
 
-```{r wrangle}
+```{r reg test}
 
-# ### spacial process vars--------------------------
-# lag_net <- full_net %>%
-#   transmute(
-#          x = x,
-#          grid_id = grid_id,
-#          mapname = mapname,
-#          count_complaints = count_complaints,
-#          nb = st_contiguity(x),
-#          wt = st_weights(nb),
-#          lag_dumping = st_lag(count_complaints, nb, wt),
-#          lag_vacant = st_lag(count_vacant, nb, wt),
-#          lag_cars = st_lag(cars_count, nb, wt),
-#          lag_outages = st_lag(outage_count, nb, wt),
-#          lag_permits = st_lag(permits_count, nb, wt))
+permits_train <- filter(permits_bg, year < 2022)
+permits_test <- filter(permits_bg, year == 2022)
+
+reg <- lm(permits_count ~ lag_1_year + lag_2_years + lag_3_years + lag_4_years + lag_5_years + lag_6_years + lag_7_years + lag_8_years + lag_9_years, lag_spatial, dist_to_2022, data = permits_train)
+
+predictions <- predict(reg, permits_test)
+predictions <- cbind(permits_test, predictions)
+
+predictions <- predictions %>%
+                  mutate(abs_error = abs(permits_count - predictions),
+                         pct_error = abs_error / permits_count)
+
+ggplot(predictions, aes(x = permits_count, y = predictions)) +
+  geom_point() +
+  labs(title = "Predicted vs. Actual Permits",
+       subtitle = "2022") +
+  geom_smooth(method = "lm", se = FALSE)
+
+
+mae <- paste0("MAE: ", round(mean(predictions$abs_error, na.rm = TRUE), 2))
+
+tm_shape(predictions) +
+        tm_polygons(col = "abs_error", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE) 
+```
+We find that our OLS model has an MAE of only `r mae`--not bad for such a simple model! Still, it struggles most in the areas where we most need it to succeed, so we will try to introduce better variables and apply a more complex model to improve our predictions.
+
+### Random Forest Regression
+```{r rf test}
+
+rf <- randomForest(permits_count ~ lag_1_year + lag_2_years + lag_3_years + lag_4_years + lag_5_years + lag_6_years + lag_7_years + lag_8_years + lag_9_years + lag_spatial + dist_to_2022, 
+                   data = permits_train,
+                   importance = TRUE, 
+                   na.action = na.omit)
+
+rf_predictions <- predict(rf, permits_test)
+rf_predictions <- cbind(permits_test, rf_predictions)
+rf_predictions <- rf_predictions %>%
+                  mutate(abs_error = abs(permits_count - rf_predictions),
+                         pct_error = abs_error / (permits_count + 0.0001))
+
+ggplot(rf_predictions, aes(x = permits_count, y = rf_predictions)) +
+  geom_point() +
+  labs(title = "Predicted vs. Actual Permits",
+       subtitle = "2022") +
+  geom_smooth(method = "lm", se = FALSE)
+
+
+rf_mae <- paste0("MAE: ", round(mean(rf_predictions$abs_error, na.rm = TRUE), 2))
+
+tm_shape(rf_predictions) +
+        tm_polygons(col = "abs_error", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE) 
 ```
 
 ## Methods
