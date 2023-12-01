@@ -183,11 +183,11 @@ tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
   tm_layout(frame = FALSE) 
 
 suppressMessages(
-tmap_animation(tm, "permits_animation.gif", delay = 50)
+tmap_animation(tm, "assets/permits_animation.gif", delay = 50)
 )
 ```
 
-![Philadelphia Building Permits, 2013 - 2022](permits_animation.gif)
+![Philadelphia Building Permits, 2013 - 2022](assets/permits_animation.gif)
 ### OLS Regression
 To begin, we run a simple regression incorporating three engineered groups of features: space lag, time lag, and distance to 2022. We include this last variable because of a Philadelphia tax abatement policy that led to a significant increase in residential development in the years immediately before 2022. We will use this as a baseline model to compare to our more complex models.
 
