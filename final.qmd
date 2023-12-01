@@ -36,13 +36,14 @@ execute:
 source("config.R")
 
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
-                       "gganimate", "tmap", "gifski", "transformr")
+                       "gganimate", "tmap", "gifski", "transformr", "ggpubr")
 install_and_load_packages(required_packages)
 
 source("utils/viz_utils.R")
 
 select <- dplyr::select
 filter <- dplyr::filter
+lag <- dplyr::lag
 
 options(scipen = 999, tigris_use_cache = TRUE, tigris_class = 'sf')
 
@@ -58,7 +59,9 @@ phl <- st_read(phl_path, quiet = TRUE) %>%
 phl_bgs_path <- "https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson"
 phl_bgs <- st_read(phl_bgs_path, quiet = TRUE) %>%
           st_transform(crs = crs) %>%
-          select(GEOID10)
+          select(GEOID10) %>%
+                  mutate(nb = st_contiguity(geometry),
+                         wt = st_weights(nb))
 
 # cellsize <- 1000
 # 
@@ -72,7 +75,8 @@ phl_bgs <- st_read(phl_bgs_path, quiet = TRUE) %>%
 
 ```{r g}
 ggplot(phl_bgs) +
-  geom_sf()
+  geom_sf() +
+  theme_void()
 ```
 
 ```{r import}
@@ -80,44 +84,96 @@ building_permits <- readRDS(building_permits_path)
 building_permits <- building_permits %>%
                       mutate(permitissuedate = as.Date(permitissuedate),
                              year = year(permitissuedate)) %>%
-                      filter(year != 2012)
+                      filter(year != 2012,
+                             typeofwork == "NEW CONSTRUCTION")
 
 # permits_net <- st_join(phl_grid, building_permits) %>%
 #                   group_by(grid_id, year) %>%
 #                   summarize(permits_count = sum(permits_count),
 #                             permits_count = ifelse(is.na(permits_count), 0, permits_count))
 
+# Create a complete grid of GEOID10 and year
+geoid_years <- expand.grid(GEOID10 = unique(phl_bgs$GEOID10),
+                           year = unique(building_permits$year))
+
+# Joining your existing data with the complete grid
 permits_bg <- st_join(phl_bgs, building_permits) %>%
-                  group_by(GEOID10, year) %>%
-                  summarize(permits_count = sum(permits_count),
-                            permits_count = ifelse(is.na(permits_count), 0, permits_count))
+              group_by(GEOID10, year) %>%
+              summarize(permits_count = sum(permits_count, na.rm = TRUE)) %>%
+              st_drop_geometry() %>%
+              right_join(geoid_years, by = c("GEOID10", "year")) %>%
+              replace_na(list(permits_count = 0)) %>%
+              left_join(phl_bgs, by = "GEOID10") %>%
+              st_as_sf()
+
+# # Apply spatial lag for each group---NOT WORKING YET
+# permits_bg <- permits_bg %>%
+#               group_by(GEOID10, year) %>%
+#               mutate(lag_permits = st_lag(permits_count, nb, wt)) %>%
+#               ungroup()
+
+## calculate time lag
+permits_bg <- permits_bg %>%
+               arrange(GEOID10, year) %>%
+               mutate(
+                 lag_1_year = lag(permits_count, 1),
+                 lag_2_years = lag(permits_count, 2),
+                 lag_3_years = lag(permits_count, 3),
+                 lag_4_years = lag(permits_count, 4),
+                 lag_5_years = lag(permits_count, 5),
+                 lag_6_years = lag(permits_count, 6),
+                 lag_7_years = lag(permits_count, 7),
+                 lag_8_years = lag(permits_count, 8),
+                 lag_9_years = lag(permits_count, 9)
+               )
+
 ```
 
+```{r hmm}
+# Pivoting to long format
+permits_bg_long <- permits_bg %>%
+                    st_drop_geometry() %>%
+                    select(-c(nb, wt))%>%
+                    pivot_longer(
+                      cols = starts_with("lag"),
+                      names_to = "Variable",
+                      values_to = "Value"
+                    )
 
+
+ggscatter(permits_bg_long, x = "permits_count", y = "Value", facet.by = "Variable",
+   add = "reg.line",  # Add regressin line
+   add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+   conf.int = TRUE # Add confidence interval
+   ) + stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01)
+```
 
 ```{r eda}
-ggplot(permits_bg, aes(x = as.factor(year))) +
-  geom_bar()
+ggplot(building_permits, aes(x = as.factor(year))) +
+  geom_bar() +
+  labs(title = "Permits per Year")
 
 ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
   geom_histogram() +
+  labs("Permits per Block Group per Year") +
   facet_wrap(~year)
+```
 
-ggplot(permits_bg %>% filter(year != 2012)) +
-  geom_sf(aes(fill = permits_count), color = NA) +
-  scale_fill_viridis_c() +
-  labs(title = "Building Permits per Block Group") +
-  facet_wrap(~year) +
-  theme_void()
+```{r gif}
+#| results: hide
+#| output: false
 
 tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
-        tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher") +
+        tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
   tm_layout(frame = FALSE) +
   tm_facets(along = "year")
 
-tmap_animation(tm)
+suppressMessages(
+tmap_animation(tm, "permits_animation.gif")
+)
 ```
 
+![Philadelphia Building Permits, 2013 - 2022](permits_animation.gif)
 
 ```{r wrangle}
 
