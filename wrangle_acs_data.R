@@ -9,7 +9,7 @@ filter <- dplyr::filter
 select <- dplyr::select
 
 
-## need to pull data for 2010, 2015, 2020 at the block group level
+## need to pull data for 2014 and 2019 at the block group level
 
 # wants:
 # race
@@ -21,27 +21,38 @@ select <- dplyr::select
 
 
 phl_acs <- get_acs(geography = "tract", 
-                     variables = c("B01003_001", 
-                                   "B19013_001", 
-                                   "B02001_002", 
-                                   "B08013_001",
-                                   "B08012_001", 
-                                   "B08301_001", 
-                                   "B08301_010", 
-                                   "B01002_001"), 
-                     year = 2021, 
+                     variables = c("B01003_001", #totalpop
+                                   "B19013_001", #medinc
+                                   "B02001_002", #white_pop
+                                   "B08013_001", #travel_time
+                                   "B08012_001", #num_commuters
+                                   "B08301_001", #means_of_trans
+                                   "B08301_010", #total_public_trans
+                                   "B25064_001", #medgross_rent
+                                   "B25070_002", #less_10p
+                                   "B25070_003", #10to15
+                                   "B25070_004", #15to20
+                                   "B25070_005", #20to25
+                                   "B25070_006", #25to30
+                                   "B25070_007", #30to35
+                                   "B25070_008", #35to40
+                                   "B25070_009", #40to50
+                                   "B25070_010", #50+
+                                   
+                                   ), 
+                     year = 2014, 
                      state = "PA", 
                      geometry = TRUE, 
                      county="Philadelphia",
                      output = "wide") %>%
   rename(Total_Pop =  B01003_001E,
          Med_Inc = B19013_001E,
-         Med_Age = B01002_001E,
          White_Pop = B02001_002E,
          Travel_Time = B08013_001E,
          Num_Commuters = B08012_001E,
          Means_of_Transport = B08301_001E,
-         Total_Public_Trans = B08301_010E) %>%
+         Total_Public_Trans = B08301_010E,
+         Med_Gross_Rent = B25064_001E, ) %>%
   select(Total_Pop, Med_Inc, White_Pop, Travel_Time,
          Means_of_Transport, Total_Public_Trans,
          Med_Age,
@@ -58,3 +69,5 @@ phl_acs <- get_acs(geography = "tract",
     Percent_White = ifelse(is.na(Percent_White), purrr::map_dbl(find_xj(Percent_White, nb), mean, na.rm = TRUE), Percent_White),
     Mean_Commute_Time = ifelse(is.na(Mean_Commute_Time), purrr::map_dbl(find_xj(Mean_Commute_Time, nb), mean, na.rm = TRUE), Mean_Commute_Time),
     Percent_Taking_Public_Trans = ifelse(is.na(Percent_Taking_Public_Trans), purrr::map_dbl(find_xj(Percent_Taking_Public_Trans, nb), mean, na.rm = TRUE), Percent_Taking_Public_Trans))
+
+saveRDS(acs_vars, acs_vars_path) # path already defined in config file
