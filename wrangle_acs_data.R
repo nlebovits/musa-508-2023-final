@@ -21,7 +21,7 @@ select <- dplyr::select
 # overcrowindg
 
 
-phl_acs14 <- get_acs(geography = "tract", 
+phl_acs14 <- get_acs(geography = "block group", 
                      variables = c("B01003_001", #totalpop
                                    "B19013_001", #medinc
                                    "B02001_002", #white_pop
@@ -91,7 +91,7 @@ phl_acs14 <- get_acs(geography = "tract",
     Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden))
 
 
-phl_acs19 <- get_acs(geography = "tract", 
+phl_acs19 <- get_acs(geography = "block group", 
                    variables = c("B01003_001", #totalpop
                                  "B19013_001", #medinc
                                  "B02001_002", #white_pop
