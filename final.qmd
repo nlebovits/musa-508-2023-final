@@ -33,7 +33,7 @@ execute:
 
 ```{r setup}
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
-                       "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest")
+                       "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest", "janitor")
 install_and_load_packages(required_packages)
 
 source("utils/viz_utils.R")
@@ -45,31 +45,68 @@ lag <- dplyr::lag
 options(scipen = 999, tigris_use_cache = TRUE, tigris_class = 'sf')
 
 crs <- 'epsg:2272'
-
-roads <- read_sf('https://opendata.arcgis.com/datasets/261eeb49dfd44ccb8a4b6a0af830fdc8_0.geojson')
-
-broad_and_market <- roads %>% filter(ST_NAME %in% c('BROAD',"MARKET") | SEG_ID %in% c(440370, 421347,421338,421337,422413,423051,440403,440402,440391,440380))
 ```
 
-```{r make grid}
-### PHL bounds and grid----------------------------------------
-phl_path <- "https://opendata.arcgis.com/datasets/405ec3da942d4e20869d4e1449a2be48_0.geojson"
-phl <- st_read(phl_path, quiet = TRUE) %>%
-          st_transform(crs = crs)
 
-phl_bgs_path <- "https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson"
-phl_bgs <- st_read(phl_bgs_path, quiet = TRUE) %>%
-          st_transform(crs = crs) %>%
-          select(GEOID10)
+1) Predict development pressure: how do we define "a lot of development"?
+2) Define affordability burden: how do we define "affordability burden"? -- % change year over year in population that is experience rate burden (will probably see extreme tipping points), growing population, % change in area incomes
+3) Identify problem zoning
+4) Calculate number of connected parcels
 
-# cellsize <- 1000
-# 
-# phl_grid <- st_make_grid(phl, crs = crs, cellsize = cellsize, square = FALSE) %>% 
-#                 st_as_sf()
-# 
-# phl_grid <- phl_grid[phl, ]
-# phl_grid <- phl_grid %>%
-#                 mutate(grid_id = 1:n())
+
+1) Predict development pressure at the block level
+2) Identify *not* burdened areas
+3) Identify problem zoning
+4) Calcualte number of connected parcels
+5) Advocate for upzoning in parcels where there is local development pressure, no affordability burden, problem zoning, and high number of connected parcels
+
+- transit
+- zoning (OSM)
+- land use (OSM)
+
+```{r read spatial data}
+#| output: false
+
+urls <- c(
+  phl = "https://opendata.arcgis.com/datasets/405ec3da942d4e20869d4e1449a2be48_0.geojson",
+  phl_bgs = "https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson",
+  nbhoods = "https://raw.githubusercontent.com/opendataphilly/open-geo-data/master/Neighborhoods_Philadelphia/Neighborhoods_Philadelphia.geojson",
+  roads = 'https://opendata.arcgis.com/datasets/261eeb49dfd44ccb8a4b6a0af830fdc8_0.geojson',
+  historic_districts = "https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+historicdistricts_local&filename=historicdistricts_local&format=geojson&skipfields=cartodb_id",
+  zoning = "https://opendata.arcgis.com/datasets/0bdb0b5f13774c03abf8dc2f1aa01693_0.geojson",
+  overlays = "https://opendata.arcgis.com/datasets/04fd29a8c022471994900cb0fd791bfc_0.geojson",
+  opa = "data/opa_properties.geojson",
+  building_permits = building_permits_path,
+ # acs = acs_vars_path,
+  trolley_stops = "data/Trolley_Stations.geojson",
+  subway_stops = "data/Highspeed_Stations.geojson"
+)
+
+suppressMessages({
+  invisible(
+    imap(urls, ~ assign(.y, phl_spat_read(.x), envir = .GlobalEnv))
+  )
+})
+
+broad_and_market <- roads %>% filter(ST_NAME %in% c('BROAD',"MARKET") | SEG_ID %in% c(440370, 421347,421338,421337,422413,423051,440403,440402,440391,440380))
+
+subway_stops <- subway_stops[phl, ]
+transit_stops <- st_union(trolley_stops, subway_stops)
+
+historic_districts <- historic_districts %>%
+                        mutate(hist_dist = name) %>%
+                        select(hist_dist)
+
+nbhoods <- nbhoods %>%
+            select(mapname)
+
+overlays <- overlays %>% clean_names()
+overlays$overlay_symbol <- gsub("/", "", overlays$overlay_symbol) 
+overlays <- overlays %>%
+              mutate(overlay_symbol = ifelse(overlay_symbol == "[NA]", "Other", overlay_symbol))
+                        
+building_permits <- building_permits %>%
+                      filter(permittype %in% c("RESIDENTIAL BUILDING", "BP_ADDITION", "BP_NEWCNST"))
 ```
 
 ```{r g}
@@ -78,25 +115,14 @@ ggplot(phl_bgs) +
   theme_void()
 ```
 
-```{r import}
-building_permits <- readRDS(building_permits_path)
-building_permits <- building_permits %>%
-                      mutate(permitissuedate = as.Date(permitissuedate),
-                             year = year(permitissuedate)) %>%
-                      filter(year != 2012,
-                             permittype == "RESIDENTIAL BUILDING")
-```
-
-```{r join}
-
-# permits_net <- st_join(phl_grid, building_permits) %>%
-#                   group_by(grid_id, year) %>%
-#                   summarize(permits_count = sum(permits_count),
-#                             permits_count = ifelse(is.na(permits_count), 0, permits_count))
+```{r join and wrangle}
+phl_bgs <- phl_spat_read("https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson") %>%
+              select(GEOID10)
 
 # Create a complete grid of GEOID10 and year
 geoid_years <- expand.grid(GEOID10 = unique(phl_bgs$GEOID10),
                            year = unique(building_permits$year))
+
 
 
 # Joining your existing data with the complete grid
@@ -111,9 +137,10 @@ permits_bg <- st_join(phl_bgs, building_permits) %>%
 
 
 ### spat + temp lags----------------------------------
+suppressMessages(
 permits_bg <- permits_bg %>%
               group_by(year) %>%
-              mutate(nb = st_contiguity(geometry),
+              mutate(nb = st_knn(geometry, 5),
                          wt = st_weights(nb),
                       lag_spatial = st_lag(permits_count, nb, wt)) %>% # calculate spat lag
               ungroup()%>%
@@ -130,26 +157,95 @@ permits_bg <- permits_bg %>%
                  lag_9_years = lag(permits_count, 9),
                  dist_to_2022 = 2022 - year
                )
+)
+
+### distance to transit---------------------------------
+phl_bgs <- phl_bgs %>%
+  rowwise() %>%
+  mutate(
+    dist_to_transit = as.numeric(min(st_distance(st_point_on_surface(geometry), transit_stops$geometry)))
+  ) %>%
+  ungroup()
+
+### historic dists---------------------------------
+hist_dists_x_bg <- st_join(phl_bgs, historic_districts) %>%
+              mutate(hist_dist = ifelse(is.na(hist_dist), 0, 1))
+
+hist_dists_x_bg <- st_join(phl_bgs, historic_districts) %>%
+                      st_drop_geometry() %>%
+                      mutate(hist_dist_present = 1) %>%
+                      group_by(GEOID10, hist_dist) %>%
+                      summarize(hist_dist_present = max(hist_dist_present, na.rm = TRUE), .groups = 'drop') %>%
+                      pivot_wider(names_from = "hist_dist", values_from = "hist_dist_present", 
+                                  names_prefix = "hist_dist_", values_fill = list("hist_dist_present" = 0))
+
+phl_bgs <- left_join(phl_bgs, hist_dists_x_bg, by = "GEOID10")
+
+### hoods---------------------------------              
+intersection <- st_intersection(phl_bgs, nbhoods)
+intersection$intersection_area <- st_area(intersection)
+max_intersection <- intersection %>%
+  group_by(GEOID10) %>%
+  filter(intersection_area == max(intersection_area)) %>%
+  ungroup() %>%
+  select(GEOID10, mapname) %>%
+  st_drop_geometry()
+
+bgs_w_hood <- left_join(phl_bgs, max_intersection, by = c("GEOID10" = "GEOID10")) %>%
+                st_drop_geometry()
+
+phl_bgs <- left_join(phl_bgs, bgs_w_hood, by = "GEOID10")
+
+### overlays---------------------------------
+overlays_x_bg <- st_join(phl_bgs, overlays %>% select(overlay_symbol)) %>%
+                      st_drop_geometry() %>%
+                      mutate(overlay_present = 1) %>%
+                      group_by(GEOID10, overlay_symbol) %>%
+                      summarize(overlay_present = max(overlay_present, na.rm = TRUE), .groups = 'drop') %>%
+                      pivot_wider(names_from = "overlay_symbol", values_from = "overlay_present", 
+                                  names_prefix = "overlay_", values_fill = list("overlay_present" = 0))
+
+phl_bgs <- left_join(phl_bgs, overlays_x_bg, by = "GEOID10")
+
+
+### finally, join back together----------------------
+permits_bg <- left_join(permits_bg,
+                     st_drop_geometry(phl_bgs),
+                     by = "GEOID10")
+
+permits_bg <- permits_bg %>%
+                select(-c(nb, wt, GEOID10)) %>%
+                clean_names()
 ```
 
-```{r hmm}
-# Pivoting to long format
-permits_bg_long <- permits_bg %>%
-                    st_drop_geometry() %>%
-                    select(-c(nb, wt))%>%
-                    pivot_longer(
-                      cols = c(starts_with("lag"), dist_to_2022),
-                      names_to = "Variable",
-                      values_to = "Value"
-                    )
+```{r gif}
+#| results: hide
+#| output: false
 
+tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
+        tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+  tm_facets(along = "year") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE) 
 
-ggscatter(permits_bg_long, x = "permits_count", y = "Value", facet.by = "Variable",
-   add = "reg.line",  # Add regressin line
-   add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
-   conf.int = TRUE # Add confidence interval
-   ) + stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01)
+suppressMessages(
+tmap_animation(tm, "assets/permits_animation.gif", delay = 50)
+)
 ```
+
+
+
+
+
+
+
+![Philadelphia Building Permits, 2013 - 2022](assets/permits_animation.gif)
+
+
+## Methods
+
+### Data
 
 ```{r eda}
 ggplot(building_permits, aes(x = as.factor(year))) +
@@ -171,32 +267,45 @@ ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
 #   tm_layout(frame = FALSE)
 ```
 
-```{r gif}
-#| results: hide
-#| output: false
 
-tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
-        tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
-  tm_facets(along = "year") +
-  tm_shape(broad_and_market) +
-  tm_lines(col = "lightgrey") +
-  tm_layout(frame = FALSE) 
 
-suppressMessages(
-tmap_animation(tm, "assets/permits_animation.gif", delay = 50)
-)
+#### Feature Engineering
+
+```{r corrplots}
+permits_bg_long <- permits_bg %>%
+                    st_drop_geometry() %>%
+                    select(-c(nb, wt))%>%
+                    pivot_longer(
+                      cols = c(starts_with("lag"), dist_to_2022),
+                      names_to = "Variable",
+                      values_to = "Value"
+                    )
+
+
+ggscatter(permits_bg_long, x = "permits_count", y = "Value", facet.by = "Variable",
+   add = "reg.line",
+   add.params = list(color = "blue", fill = "lightgray"),
+   conf.int = TRUE
+   ) + stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01)
 ```
 
-![Philadelphia Building Permits, 2013 - 2022](assets/permits_animation.gif)
+### Models
+
+## Results
+
+
+
 ### OLS Regression
 To begin, we run a simple regression incorporating three engineered groups of features: space lag, time lag, and distance to 2022. We include this last variable because of a Philadelphia tax abatement policy that led to a significant increase in residential development in the years immediately before 2022. We will use this as a baseline model to compare to our more complex models.
 
 ```{r reg test}
+permits_bg1 <- permits_bg %>%
+                  select(-c(nb, wt, geoid10))
 
-permits_train <- filter(permits_bg, year < 2022)
-permits_test <- filter(permits_bg, year == 2022)
+permits_train <- filter(permits_bg1, year < 2022)
+permits_test <- filter(permits_bg1, year == 2022)
 
-reg <- lm(permits_count ~ lag_1_year + lag_2_years + lag_3_years + lag_4_years + lag_5_years + lag_6_years + lag_7_years + lag_8_years + lag_9_years, lag_spatial, dist_to_2022, data = permits_train)
+reg <- lm(permits_count ~ ., data = st_drop_geometry(permits_train))
 
 predictions <- predict(reg, permits_test)
 predictions <- cbind(permits_test, predictions)
@@ -220,13 +329,41 @@ tm_shape(predictions) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE) 
 ```
+### Poisson Model
+Given that we are dealing with a skewed distribution of count data
+```{r poisson}
+poisson_reg <- glm(permits_count ~ ., 
+                   family = poisson(link = "log"),
+                   data = st_drop_geometry(permits_train))
+
+poisson_predictions <- predict(poisson_reg, permits_test, type = "response")
+poisson_predictions <- cbind(permits_test, poisson_predictions)
+
+poisson_predictions <- poisson_predictions %>%
+                           mutate(abs_error = abs(permits_count - poisson_predictions),
+                                  pct_error = abs_error / permits_count)
+
+ggplot(poisson_predictions, aes(x = permits_count, y = poisson_predictions)) +
+  geom_point() +
+  labs(title = "Predicted vs. Actual Permits",
+       subtitle = "2022") +
+  geom_smooth(method = "lm", se = FALSE)
+
+poisson_mae <- paste0("MAE: ", round(mean(poisson_predictions$abs_error, na.rm = TRUE), 2))
+
+tm_shape(poisson_predictions) +
+        tm_polygons(col = "abs_error", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE)
+```
+
 We find that our OLS model has an MAE of only `r mae`--not bad for such a simple model! Still, it struggles most in the areas where we most need it to succeed, so we will try to introduce better variables and apply a more complex model to improve our predictions.
 
 ### Random Forest Regression
 ```{r rf test}
-
-rf <- randomForest(permits_count ~ lag_1_year + lag_2_years + lag_3_years + lag_4_years + lag_5_years + lag_6_years + lag_7_years + lag_8_years + lag_9_years + lag_spatial + dist_to_2022, 
-                   data = permits_train,
+rf <- randomForest(permits_count ~ ., 
+                   data = st_drop_geometry(permits_train),
                    importance = TRUE, 
                    na.action = na.omit)
 
@@ -252,9 +389,6 @@ tm_shape(rf_predictions) +
   tm_layout(frame = FALSE) 
 ```
 
-## Methods
-
-## Results
 
 ## Discussion
 

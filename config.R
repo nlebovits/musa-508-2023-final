@@ -8,7 +8,7 @@ acs_vars_path <- "data/acs_vars.geojson"
 
 ### functions
 
-# load packages and install missing ones
+# load packages and install missing ones----------------------------------------
 # this is useful so that people can run scripts from anywhere without needing to reinstall stuff
 install_and_load_packages <- function(required_packages) {
   installed_packages <- installed.packages()[, "Package"]
@@ -48,4 +48,10 @@ install_and_load_packages <- function(required_packages) {
       )
     )
   }
+}
+
+# read and transform spatial data quietly----------------------------------------
+phl_spat_read <- function(path){
+  st_read(path, quiet = TRUE) %>%
+    st_transform(crs = crs)
 }

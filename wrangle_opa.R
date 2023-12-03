@@ -24,4 +24,4 @@ opa_properties <- st_as_sf(get_carto(query,
                              crs = st_crs('EPSG:4326')) |>
   st_transform(crs = st_crs("EPSG:2272"))
 
-saveRDS(opa_properties, opa_path)
+st_write(opa_properties, opa_path)
