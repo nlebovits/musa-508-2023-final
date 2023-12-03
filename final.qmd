@@ -33,7 +33,8 @@ execute:
 
 ```{r setup}
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
-                       "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest", "janitor")
+                       "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest", "janitor",
+                       'igraph')
 install_and_load_packages(required_packages)
 
 source("utils/viz_utils.R")
@@ -77,7 +78,8 @@ urls <- c(
   overlays = "https://opendata.arcgis.com/datasets/04fd29a8c022471994900cb0fd791bfc_0.geojson",
   opa = "data/opa_properties.geojson",
   building_permits = building_permits_path,
- # acs = acs_vars_path,
+  acs14 = acs_vars14_path,
+  acs19 = acs_vars19_path,
   trolley_stops = "data/Trolley_Stations.geojson",
   subway_stops = "data/Highspeed_Stations.geojson"
 )
@@ -87,6 +89,9 @@ suppressMessages({
     imap(urls, ~ assign(.y, phl_spat_read(.x), envir = .GlobalEnv))
   )
 })
+
+phl_bgs <- phl_bgs %>%
+              select(GEOID10)
 
 broad_and_market <- roads %>% filter(ST_NAME %in% c('BROAD',"MARKET") | SEG_ID %in% c(440370, 421347,421338,421337,422413,423051,440403,440402,440391,440380))
 
@@ -107,6 +112,35 @@ overlays <- overlays %>%
                         
 building_permits <- building_permits %>%
                       filter(permittype %in% c("RESIDENTIAL BUILDING", "BP_ADDITION", "BP_NEWCNST"))
+
+acs_reg_vars <- c(
+  "GEOID",
+  "Total_Pop", 
+  "Med_Inc",
+  "Percent_Nonwhite",
+  "Percent_Renters",
+  "Rent_Burden",
+  "Ext_Rent_Burden"
+  )
+
+acs14_reg_vars <- phl_spat_read(acs_vars14_path) %>%
+                    st_drop_geometry() %>%
+                    select(acs_reg_vars) %>%
+                    clean_names() %>%
+                    rename(GEOID10 = geoid)
+
+acs19_reg_vars <- phl_spat_read(acs_vars19_path) %>%
+                    st_drop_geometry() %>%
+                    select(acs_reg_vars) %>%
+                    clean_names() %>%
+                    rename(GEOID10 = geoid)
+
+acs_tot <- acs14_reg_vars %>%
+             left_join(acs19_reg_vars, by = "GEOID10", suffix = c("_14", "_19")) %>%
+             mutate(pct_med_inc_change = med_inc_19 - med_inc_14 / med_inc_14,
+                    pct_tot_pop_change = total_pop_19 - total_pop_14 / total_pop_14,
+                    pct_renters_change = percent_renters_19 - percent_renters_14,
+                    pct_rent_burdenchange = rent_burden_19 - rent_burden_14)
 ```
 
 ```{r g}
@@ -208,14 +242,28 @@ overlays_x_bg <- st_join(phl_bgs, overlays %>% select(overlay_symbol)) %>%
 phl_bgs <- left_join(phl_bgs, overlays_x_bg, by = "GEOID10")
 
 
-### finally, join back together----------------------
+### join back together----------------------
 permits_bg <- left_join(permits_bg,
                      st_drop_geometry(phl_bgs),
                      by = "GEOID10")
 
+### acs vars--------------------------------------------
+
+permits_pre_2019 <- filter(permits_bg, year < 2019)
+permits_post_2018 <- filter(permits_bg, year >= 2019)
+
+
+permits_joined_pre_2019 <- left_join(permits_pre_2019, acs14_reg_vars, by = "GEOID10")
+permits_joined_post_2018 <- left_join(permits_post_2018, acs19_reg_vars, by = "GEOID10")
+
+
+permits_bg <- bind_rows(permits_joined_pre_2019, permits_joined_post_2018)
+
+### clean-----------------------------------------------------
 permits_bg <- permits_bg %>%
                 select(-c(nb, wt, GEOID10)) %>%
                 clean_names()
+
 ```
 
 ```{r gif}
@@ -274,7 +322,6 @@ ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
 ```{r corrplots}
 permits_bg_long <- permits_bg %>%
                     st_drop_geometry() %>%
-                    select(-c(nb, wt))%>%
                     pivot_longer(
                       cols = c(starts_with("lag"), dist_to_2022),
                       names_to = "Variable",
@@ -299,11 +346,8 @@ ggscatter(permits_bg_long, x = "permits_count", y = "Value", facet.by = "Variabl
 To begin, we run a simple regression incorporating three engineered groups of features: space lag, time lag, and distance to 2022. We include this last variable because of a Philadelphia tax abatement policy that led to a significant increase in residential development in the years immediately before 2022. We will use this as a baseline model to compare to our more complex models.
 
 ```{r reg test}
-permits_bg1 <- permits_bg %>%
-                  select(-c(nb, wt, geoid10))
-
-permits_train <- filter(permits_bg1, year < 2022)
-permits_test <- filter(permits_bg1, year == 2022)
+permits_train <- filter(permits_bg %>% select(-mapname), year < 2022)
+permits_test <- filter(permits_bg %>% select(-mapname), year == 2022)
 
 reg <- lm(permits_count ~ ., data = st_drop_geometry(permits_train))
 
@@ -391,6 +435,144 @@ tm_shape(rf_predictions) +
 
 
 ## Discussion
+
+### Accuracy
+Predominately, our model *overpredicts*, which is better than underpredicting, as it facilitates new development.
+```{r error hist}
+nbins <- as.integer(sqrt(nrow(rf_predictions)))
+vline <- mean(rf_predictions$abs_error, na.rm = TRUE)
+
+ggplot(rf_predictions, aes(x = abs_error)) +
+  geom_histogram(bins = nbins) +
+  geom_vline(aes(xintercept = vline))
+```
+
+### Generalizabiltiy
+
+```{r race}
+tm_shape(acs19) +
+        tm_polygons(col = "Percent_Nonwhite", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE)
+
+rf_predictions <- rf_predictions %>%
+                      mutate(race_comp = case_when(
+                        percent_nonwhite >= .50 ~ "Majority Non-White",
+                        TRUE ~ "Majority White"
+                      ))
+
+ggplot(rf_predictions, aes(y = abs_error, color = race_comp)) +
+  geom_boxplot(fill = NA)
+```
+How does this generalize across neighborhoods?
+```{r neighborhood}
+```
+
+How does this generalize across council districts?
+```{r council district}
+```
+
+### Assessing Upzoning Needs
+We can identify conflict between projected development and current zoning.
+
+Look at zoning that is industrial or residential single family in areas that our model suggests are high development risk for 2023:
+```{r inappropriate zoning}
+filtered_zoning <- zoning %>%
+                     filter(str_detect(CODE, "RS") | str_detect(CODE, "I"))
+
+
+tm_shape(filtered_zoning) +
+        tm_polygons(col = "CODE", border.alpha = 0, colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE)
+```
+We can extract development predictions at the block level to these parcels and then visualize them by highest need.
+```{r upzoning needs}
+filtered_zoning <- st_join(
+  filtered_zoning,
+  rf_predictions %>% select(rf_predictions)
+)
+
+tm_shape(filtered_zoning) +
+        tm_polygons(col = "rf_predictions", border.alpha = 0, colorNA = "lightgrey", palette = "viridis", style = "fisher") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE)
+```
+```{r interactive}
+tmap_mode('view')
+
+filtered_zoning %>%
+  filter(rf_predictions > 10) %>%
+tm_shape() +
+        tm_polygons(col = "CODE", border.alpha = 0, colorNA = "lightgrey",
+                    popup.vars = c('rf_predictions', 'CODE')) +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE)
+```
+
+
+Furthermore, we can identify properties with high potential for assemblage, which suggests the ability to accomodate high-density, multi-unit housing.
+```{r assemblage}
+nbs <- filtered_zoning %>% 
+  mutate(nb = st_contiguity(geometry))
+
+# Create edge list while handling cases with no neighbors
+edge_list <- tibble::tibble(id = 1:length(nbs$nb), nbs = nbs$nb) %>% 
+  tidyr::unnest(nbs) %>% 
+  filter(nbs != 0)
+
+# Create a graph with a node for each row in filtered_zoning
+g <- make_empty_graph(n = nrow(filtered_zoning))
+V(g)$name <- as.character(1:nrow(filtered_zoning))
+
+# Add edges if they exist
+if (nrow(edge_list) > 0) {
+  edges <- as.matrix(edge_list)
+  g <- add_edges(g, c(t(edges)))
+}
+
+# Calculate the number of contiguous neighbors, handling nodes without neighbors
+n_contiguous <- sapply(V(g)$name, function(node) {
+  if (node %in% edges) {
+    length(neighborhood(g, order = 1, nodes = as.numeric(node))[[1]])
+  } else {
+    1  # Nodes without neighbors count as 1 (themselves)
+  }
+})
+
+filtered_zoning <- filtered_zoning %>%
+                    mutate(n_contig = n_contiguous)
+
+filtered_zoning %>%
+  st_drop_geometry() %>%
+  select(rf_predictions,
+         n_contig,
+         OBJECTID,
+         CODE) %>%
+  filter(rf_predictions > 10,
+         n_contig > 2) %>%
+  kablerize(caption = "Poorly-Zoned Properties with High Development Risk")
+
+tmap_mode('view')
+
+filtered_zoning %>%
+  select(rf_predictions,
+         n_contig,
+         OBJECTID,
+         CODE) %>%
+  filter(rf_predictions > 10,
+         n_contig > 2) %>%
+tm_shape() +
+        tm_polygons(col = "rf_predictions", border.alpha = 0, colorNA = "lightgrey", palette = "viridis", style = "fisher",
+                    popup.vars = c('rf_predictions', 'n_contig', 'CODE'), alpha = 0.5) +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE)
+```
 
 ## Conclusion
 
