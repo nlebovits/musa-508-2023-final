@@ -88,7 +88,8 @@ phl_acs14 <- get_acs(geography = "block group",
     Percent_Taking_Public_Trans = ifelse(is.na(Percent_Taking_Public_Trans), purrr::map_dbl(find_xj(Percent_Taking_Public_Trans, nb), mean, na.rm = TRUE), Percent_Taking_Public_Trans),
     Percent_Renters =  ifelse(is.na(Percent_Renters), purrr::map_dbl(find_xj(Percent_Renters, nb), mean, na.rm = TRUE), Percent_Renters),
     Rent_Burden = ifelse(is.na(Rent_Burden), purrr::map_dbl(find_xj(Rent_Burden, nb), mean, na.rm = TRUE), Rent_Burden),
-    Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden))
+    Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden)) %>%
+    select(-c(nb, wt))
 
 
 phl_acs19 <- get_acs(geography = "block group", 
@@ -158,7 +159,9 @@ phl_acs19 <- get_acs(geography = "block group",
     Percent_Taking_Public_Trans = ifelse(is.na(Percent_Taking_Public_Trans), purrr::map_dbl(find_xj(Percent_Taking_Public_Trans, nb), mean, na.rm = TRUE), Percent_Taking_Public_Trans),
     Percent_Renters =  ifelse(is.na(Percent_Renters), purrr::map_dbl(find_xj(Percent_Renters, nb), mean, na.rm = TRUE), Percent_Renters),
     Rent_Burden = ifelse(is.na(Rent_Burden), purrr::map_dbl(find_xj(Rent_Burden, nb), mean, na.rm = TRUE), Rent_Burden),
-    Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden))
+    Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden)) %>%
+    select(-c(nb, wt))
 
 
-saveRDS(phl_acs, acs_vars_path) # path already defined in config file
+st_write(phl_acs14, acs_vars14_path) # path already defined in config file
+st_write(phl_acs19, acs_vars19_path) # path already defined in config file
