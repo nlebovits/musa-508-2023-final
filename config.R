@@ -3,7 +3,8 @@ library(devtools)
 
 ### global vars
 building_permits_path <- "data/building_permits.geojson"
-opa_path <- "data/opa_properties.geojson"
+acs_vars_path <- "data/acs_vars.geojson"
+
 
 ### functions
 
