@@ -51,3 +51,7 @@ rsconnect/
 # building permits and opa properties
 data/building_permits.geojson
 data/opa_properties.geojson
+
+# ignore quarto output
+/.quarto/
+/_site/
