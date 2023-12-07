@@ -1,7 +1,4 @@
 
-
-palette <- c("#A5C4D4","#8499B1","#7B6D8D","#593F62","#36151E") 
-
 mapTheme <- function(base_size = 12, title_size = 12, subtitle_size = 10) {
   theme(
     text = element_text(color = "black"),

@@ -24,8 +24,8 @@ building_perms_query <- sprintf("
                   typeofwork, 
                   ST_Y(the_geom) AS lat, ST_X(the_geom) AS lng
                   FROM permits
-                  WHERE permitissuedate >= '%s' AND permitissuedate < '%s'
-                 ", ten_years_ago, one_year_ago)
+                  WHERE permitissuedate >= '%s'
+                 ", ten_years_ago)
 
 building_permits <- st_as_sf(get_carto(building_perms_query,
                               format = 'csv',

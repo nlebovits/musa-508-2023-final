@@ -1,11 +1,6 @@
 library(utils)
 library(devtools)
 
-### global vars
-building_permits_path <- "data/building_permits.geojson"
-acs_vars14_path <- "data/acs_vars14.geojson"
-acs_vars19_path <- "data/acs_vars19.geojson"
-
 ### functions
 
 # load packages and install missing ones----------------------------------------
@@ -55,3 +50,17 @@ phl_spat_read <- function(path){
   st_read(path, quiet = TRUE) %>%
     st_transform(crs = crs)
 }
+
+# run to install monochomeR if not installed already
+required_packages <- c("monochromeR")
+install_and_load_packages(required_packages)
+
+### global vars
+building_permits_path <- "data/building_permits.geojson"
+acs_vars14_path <- "data/acs_vars14.geojson"
+acs_vars19_path <- "data/acs_vars19.geojson"
+
+
+palette <- c("#ffab40", "#ff6c40", "#1cb979", "#bdeeda", "#eae8ec")
+mono_5_orange <- generate_palette(palette[2], modification = "go_lighter", n_colours = 5, view_palette = TRUE)  
+mono_5_green <- generate_palette(palette[3], modification = "go_lighter", n_colours = 5, view_palette = TRUE) 

@@ -150,9 +150,6 @@ ggplot(phl_bgs) +
 ```
 
 ```{r join and wrangle}
-phl_bgs <- phl_spat_read("https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson") %>%
-              select(GEOID10)
-
 # Create a complete grid of GEOID10 and year
 geoid_years <- expand.grid(GEOID10 = unique(phl_bgs$GEOID10),
                            year = unique(building_permits$year))
@@ -189,8 +186,18 @@ permits_bg <- permits_bg %>%
                  lag_7_years = lag(permits_count, 7),
                  lag_8_years = lag(permits_count, 8),
                  lag_9_years = lag(permits_count, 9),
+                 lag_spat_1_year = lag(lag_spatial, 1),
+                 lag_spat_2_years = lag(lag_spatial, 2),
+                 lag_spat_3_years = lag(lag_spatial, 3),
+                 lag_spat_4_years = lag(lag_spatial, 4),
+                 lag_spat_5_years = lag(lag_spatial, 5),
+                 lag_spat_6_years = lag(lag_spatial, 6),
+                 lag_spat_7_years = lag(lag_spatial, 7),
+                 lag_spat_8_years = lag(lag_spatial, 8),
+                 lag_spat_9_years = lag(lag_spatial, 9),
                  dist_to_2022 = 2022 - year
-               )
+               ) %>%
+              select(-lag_spatial)
 )
 
 ### distance to transit---------------------------------
@@ -271,7 +278,7 @@ permits_bg <- permits_bg %>%
 #| output: false
 
 tm <- tm_shape(permits_bg %>% filter(year != 2012)) +
-        tm_polygons(col = "permits_count", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+        tm_polygons(col = "permits_count", border.alpha = 0, palette = mono_5_green, style = "fisher", colorNA = "lightgrey") +
   tm_facets(along = "year") +
   tm_shape(broad_and_market) +
   tm_lines(col = "lightgrey") +
