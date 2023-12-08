@@ -34,7 +34,7 @@ execute:
 ```{r setup}
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
                        "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest", "janitor",
-                       'igraph')
+                       'igraph', "plotly")
 install_and_load_packages(required_packages)
 
 source("utils/viz_utils.R")
@@ -76,6 +76,7 @@ urls <- c(
   historic_districts = "https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+historicdistricts_local&filename=historicdistricts_local&format=geojson&skipfields=cartodb_id",
   zoning = "https://opendata.arcgis.com/datasets/0bdb0b5f13774c03abf8dc2f1aa01693_0.geojson",
   overlays = "https://opendata.arcgis.com/datasets/04fd29a8c022471994900cb0fd791bfc_0.geojson",
+  council_dists = "https://opendata.arcgis.com/datasets/9298c2f3fa3241fbb176ff1e84d33360_0.geojson",
   opa = "data/opa_properties.geojson",
   building_permits = building_permits_path,
   acs14 = acs_vars14_path,
@@ -104,6 +105,9 @@ historic_districts <- historic_districts %>%
 
 nbhoods <- nbhoods %>%
             select(mapname)
+
+council_dists <- council_dists %>%
+                    select(DISTRICT)
 
 overlays <- overlays %>% clean_names()
 overlays$overlay_symbol <- gsub("/", "", overlays$overlay_symbol) 
@@ -150,9 +154,6 @@ ggplot(phl_bgs) +
 ```
 
 ```{r join and wrangle}
-phl_bgs <- phl_spat_read("https://opendata.arcgis.com/datasets/2f982bada233478ea0100528227febce_0.geojson") %>%
-              select(GEOID10)
-
 # Create a complete grid of GEOID10 and year
 geoid_years <- expand.grid(GEOID10 = unique(phl_bgs$GEOID10),
                            year = unique(building_permits$year))
@@ -229,6 +230,21 @@ bgs_w_hood <- left_join(phl_bgs, max_intersection, by = c("GEOID10" = "GEOID10")
                 st_drop_geometry()
 
 phl_bgs <- left_join(phl_bgs, bgs_w_hood, by = "GEOID10")
+
+### council_dists---------------------------------              
+cd_inter <- st_intersection(phl_bgs, council_dists)
+cd_inter$intersection_area <- st_area(cd_inter)
+cd_max_inter <- cd_inter %>%
+  group_by(GEOID10) %>%
+  filter(intersection_area == max(intersection_area)) %>%
+  ungroup() %>%
+  select(GEOID10, mapname) %>%
+  st_drop_geometry()
+
+bgs_w_cd <- left_join(phl_bgs, cd_max_inter, by = c("GEOID10" = "GEOID10")) %>%
+                st_drop_geometry()
+
+phl_bgs <- left_join(phl_bgs, bgs_w_cd, by = "GEOID10")
 
 ### overlays---------------------------------
 overlays_x_bg <- st_join(phl_bgs, overlays %>% select(overlay_symbol)) %>%
@@ -315,7 +331,33 @@ ggplot(permits_bg %>% st_drop_geometry, aes(x = permits_count)) +
 #   tm_layout(frame = FALSE)
 ```
 
+```{r perms x dist}
+perms_x_dist <- st_join(building_permits, council_dists)
 
+perms_x_dist_sum <- perms_x_dist %>%
+                  st_drop_geometry() %>%
+                  group_by(DISTRICT, year) %>%
+                  summarize(permits_count = n())
+
+perms_x_dist_mean = perms_x_dist_sum %>%
+                      group_by(year) %>%
+                      summarize(permits_count = mean(permits_count)) %>%
+                      mutate(DISTRICT = "Average")
+
+perms_x_dist_sum <- bind_rows(perms_x_dist_sum, perms_x_dist_mean) %>%
+                        mutate(color = ifelse(DISTRICT != "Average", 0, 1))
+
+ggplotly(
+ggplot(perms_x_dist_sum %>% filter(year > 2013), aes(x = year, y = permits_count, color = as.character(color), group = interaction(DISTRICT, color))) +
+  geom_line(lwd = 0.5) +
+  labs(title = "Permits per Year by Council District",
+       y = "Total Permits") +
+  # facet_wrap(~DISTRICT) +
+  theme_minimal() +
+  theme(axis.title.x = element_blank()) +
+  scale_color_manual(values = c("darkgrey", "red"))
+)
+```
 
 #### Feature Engineering
 
@@ -348,6 +390,7 @@ To begin, we run a simple regression incorporating three engineered groups of fe
 ```{r reg test}
 permits_train <- filter(permits_bg %>% select(-mapname), year < 2022)
 permits_test <- filter(permits_bg %>% select(-mapname), year == 2022)
+permits_validate <- filter(permits_bg %>% select(-mapname), year == 2023)
 
 reg <- lm(permits_count ~ ., data = st_drop_geometry(permits_train))
 
@@ -479,7 +522,8 @@ We can identify conflict between projected development and current zoning.
 Look at zoning that is industrial or residential single family in areas that our model suggests are high development risk for 2023:
 ```{r inappropriate zoning}
 filtered_zoning <- zoning %>%
-                     filter(str_detect(CODE, "RS") | str_detect(CODE, "I"))
+                     filter(str_detect(CODE, "RS") | str_detect(CODE, "I"),
+                            CODE != "I2")
 
 
 tm_shape(filtered_zoning) +
@@ -501,6 +545,7 @@ tm_shape(filtered_zoning) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE)
 ```
+
 ```{r interactive}
 tmap_mode('view')
 
@@ -513,7 +558,6 @@ tm_shape() +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE)
 ```
-
 
 Furthermore, we can identify properties with high potential for assemblage, which suggests the ability to accomodate high-density, multi-unit housing.
 ```{r assemblage}
@@ -555,6 +599,7 @@ filtered_zoning %>%
          CODE) %>%
   filter(rf_predictions > 10,
          n_contig > 2) %>%
+  arrange(desc(rf_predictions, n_contig)) %>%
   kablerize(caption = "Poorly-Zoned Properties with High Development Risk")
 
 tmap_mode('view')
@@ -572,6 +617,15 @@ tm_shape() +
   tm_shape(broad_and_market) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE)
+```
+
+### 2024 Predictions
+Just for shits and giggles, throw in 2024 predictions.
+(Can use data from 2023.)
+```{r go crazy}
+
+# need to create a new dataframe with year = 2024, spatial and temporal lag based on 2023, and most recent ACS data (2022)
+
 ```
 
 ## Conclusion
