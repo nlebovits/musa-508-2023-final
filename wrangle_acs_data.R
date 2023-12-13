@@ -84,12 +84,13 @@ phl_acs14 <- get_acs(geography = "block group",
     Med_Inc = ifelse(is.na(Med_Inc), purrr::map_dbl(find_xj(Med_Inc, nb), mean, na.rm = TRUE), Med_Inc),
     Travel_Time = ifelse(is.na(Travel_Time), purrr::map_dbl(find_xj(Travel_Time, nb), mean, na.rm = TRUE), Travel_Time),
     Percent_White = ifelse(is.na(Percent_White), purrr::map_dbl(find_xj(Percent_White, nb), mean, na.rm = TRUE), Percent_White),
+    Percent_Nonwhite = ifelse(is.na(Percent_Nonwhite), purrr::map_dbl(find_xj(Percent_Nonwhite, nb), mean, na.rm = TRUE), Percent_Nonwhite),
     Mean_Commute_Time = ifelse(is.na(Mean_Commute_Time), purrr::map_dbl(find_xj(Mean_Commute_Time, nb), mean, na.rm = TRUE), Mean_Commute_Time),
     Percent_Taking_Public_Trans = ifelse(is.na(Percent_Taking_Public_Trans), purrr::map_dbl(find_xj(Percent_Taking_Public_Trans, nb), mean, na.rm = TRUE), Percent_Taking_Public_Trans),
     Percent_Renters =  ifelse(is.na(Percent_Renters), purrr::map_dbl(find_xj(Percent_Renters, nb), mean, na.rm = TRUE), Percent_Renters),
     Rent_Burden = ifelse(is.na(Rent_Burden), purrr::map_dbl(find_xj(Rent_Burden, nb), mean, na.rm = TRUE), Rent_Burden),
     Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden)) %>%
-    select(-c(nb, wt))
+  select(-c(nb, wt))
 
 # acs 19-------------------------------------------------
 phl_acs19 <- get_acs(geography = "block group", 
@@ -155,12 +156,13 @@ phl_acs19 <- get_acs(geography = "block group",
     Med_Inc = ifelse(is.na(Med_Inc), purrr::map_dbl(find_xj(Med_Inc, nb), mean, na.rm = TRUE), Med_Inc),
     Travel_Time = ifelse(is.na(Travel_Time), purrr::map_dbl(find_xj(Travel_Time, nb), mean, na.rm = TRUE), Travel_Time),
     Percent_White = ifelse(is.na(Percent_White), purrr::map_dbl(find_xj(Percent_White, nb), mean, na.rm = TRUE), Percent_White),
+    Percent_Nonwhite = ifelse(is.na(Percent_Nonwhite), purrr::map_dbl(find_xj(Percent_Nonwhite, nb), mean, na.rm = TRUE), Percent_Nonwhite),
     Mean_Commute_Time = ifelse(is.na(Mean_Commute_Time), purrr::map_dbl(find_xj(Mean_Commute_Time, nb), mean, na.rm = TRUE), Mean_Commute_Time),
     Percent_Taking_Public_Trans = ifelse(is.na(Percent_Taking_Public_Trans), purrr::map_dbl(find_xj(Percent_Taking_Public_Trans, nb), mean, na.rm = TRUE), Percent_Taking_Public_Trans),
     Percent_Renters =  ifelse(is.na(Percent_Renters), purrr::map_dbl(find_xj(Percent_Renters, nb), mean, na.rm = TRUE), Percent_Renters),
     Rent_Burden = ifelse(is.na(Rent_Burden), purrr::map_dbl(find_xj(Rent_Burden, nb), mean, na.rm = TRUE), Rent_Burden),
     Ext_Rent_Burden = ifelse(is.na(Ext_Rent_Burden), purrr::map_dbl(find_xj(Ext_Rent_Burden, nb), mean, na.rm = TRUE), Ext_Rent_Burden)) %>%
-    select(-c(nb, wt))
+  select(-c(nb, wt))
 
 
 ### acs 22----------------------------------------------------
@@ -227,6 +229,7 @@ phl_acs22 <- get_acs(geography = "block group",
     Med_Inc = ifelse(is.na(Med_Inc), purrr::map_dbl(find_xj(Med_Inc, nb), mean, na.rm = TRUE), Med_Inc),
     Travel_Time = ifelse(is.na(Travel_Time), purrr::map_dbl(find_xj(Travel_Time, nb), mean, na.rm = TRUE), Travel_Time),
     Percent_White = ifelse(is.na(Percent_White), purrr::map_dbl(find_xj(Percent_White, nb), mean, na.rm = TRUE), Percent_White),
+    Percent_Nonwhite = ifelse(is.na(Percent_Nonwhite), purrr::map_dbl(find_xj(Percent_Nonwhite, nb), mean, na.rm = TRUE), Percent_Nonwhite),
     Mean_Commute_Time = ifelse(is.na(Mean_Commute_Time), purrr::map_dbl(find_xj(Mean_Commute_Time, nb), mean, na.rm = TRUE), Mean_Commute_Time),
     Percent_Taking_Public_Trans = ifelse(is.na(Percent_Taking_Public_Trans), purrr::map_dbl(find_xj(Percent_Taking_Public_Trans, nb), mean, na.rm = TRUE), Percent_Taking_Public_Trans),
     Percent_Renters =  ifelse(is.na(Percent_Renters), purrr::map_dbl(find_xj(Percent_Renters, nb), mean, na.rm = TRUE), Percent_Renters),
@@ -274,10 +277,12 @@ acs_22_to_2010_bgs_ext <- interpolate_pw(
   Total_Pop,
   GEOID
 )) %>% 
-  st_drop_geometry()
+  st_drop_geometry() 
 
 phl_acs22_final <- left_join(acs_22_to_2010_bgs_int, acs_22_to_2010_bgs_ext, by = "GEOID") %>% st_as_sf()
 
+
+## check for NAs in % nonwhite, then impute
 
 
 ### write----------------------------------------------------------------------------
