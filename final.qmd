@@ -75,7 +75,12 @@ urls <- c(
   building_permits = building_permits_path,
   permits_bg = final_dataset_path,
   zoning = "https://opendata.arcgis.com/datasets/0bdb0b5f13774c03abf8dc2f1aa01693_0.geojson",
-  opa = "data/opa_properties.geojson"
+  opa = "data/opa_properties.geojson",
+  ols_preds = 'data/model_outputs/ols_preds.geojson',
+  rf_test_preds = 'data/model_outputs/rf_test_preds.geojson',
+  rf_val_preds = 'data/model_outputs/rf_val_preds.geojson',
+  rf_proj_preds 'data/model_outputs/rf_proj_preds.geojson'
+  
 )
 
 suppressMessages({
