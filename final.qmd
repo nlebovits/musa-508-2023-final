@@ -28,17 +28,26 @@ execute:
 ---
 
 ## Summary
+This project presents a comprehensive statistical analysis of urban development in Philadelphia, focusing on the intricate balance between growth, affordability, and gentrification. Central to this study is the development of a random forest model, which has demonstrated remarkable effectiveness in predicting future development patterns with a low mean absolute error. By accurately forecasting where growth is likely to occur, this model serves as a critical tool for urban planners and policymakers. It can be strategically leveraged to promote proactive upzoning of high-priority parcels, aligning current zoning more closely with anticipated development. This approach is particularly aimed at fostering affordable housing in Philadelphia, addressing one of the city's most pressing challenges. Through this blend of data-driven insights and targeted policy recommendations, the project seeks to guide Philadelphia towards a more equitable and sustainable urban future.
 
 ## Introduction
 
 ```{r setup}
 required_packages <- c("tidyverse", "sf", "acs", "tidycensus", "sfdep", "kableExtra", "conflicted",
                        "gganimate", "tmap", "gifski", "transformr", "ggpubr", "randomForest", "janitor",
-                       'igraph', "plotly")
+                       'igraph', "plotly", "ggcorrplot", "Kendall")
+suppressWarnings(
 install_and_load_packages(required_packages)
+)
 
 source("utils/viz_utils.R")
 ```
+
+Philadelphia, the sixth-largest city in the United States, presents a unique case study in urban development. Despite its ranking as the 42nd in terms of cost of living, the city's approach to housing supply and affordability stands out. In the complex landscape of urban growth, Philadelphia treads a precarious line, balancing the benefits of new construction with the challenges of affordability and gentrification. This statistical analysis aims to delve into these dynamics, examining how the city's growth, often perceived as a political rather than a strategic or 'smart' process, impacts its residents and neighborhoods.
+
+The citywide impact of development in Philadelphia suggests a positive trend towards increased affordability and choice for its inhabitants. However, this macro view masks the localized burdens of development, where the cost and impact of new construction can be disproportionately felt. The central question then arises: How can Philadelphia grow equitably? The answer may lie in the concept of 'smart growth', a strategic approach to urban planning. But in reality, growth in Philadelphia is more influenced by political forces than by comprehensive, well-thought-out plans. Comprehensive plans, ideally set on ten-year timelines, often become mere suggestions, subject to the whims of city council members rather than serving as steadfast guides for development.
+
+The statistical analysis will further explore the critical issue of zoning mismatch, a barrier to ensuring dense and equitable growth in Philadelphia. The current system, where permitting is largely controlled by individual council members ('council-member-time'), often leads to a situation where exceptions to zoning rules unfairly become the norm. This analysis aims to provide dynamic data and insights to empower zoning advocates, offering them the tools to effectively counter these forces. By highlighting the need for intervention and the reduction of zoning mismatches, the study seeks to contribute to a broader understanding of how Philadelphia can navigate its growth challenges and opportunities, moving towards a more equitable and sustainable urban future.
 
 
 1) Predict development pressure: how do we define "a lot of development"?
@@ -105,7 +114,7 @@ tm_shape(permits_bg %>% filter(year == 2023)) +
 # 
 # tmap_save(tm_out, "assets/extreme_rent_burden_2022.jpg", dpi = 500)
 
-tm <- tm_shape(permits_bg %>% filter(!year %in% c(2012, 2023))) +
+tm <- tm_shape(permits_bg %>% filter(!year %in% c(2012, 2023, 2024))) +
         tm_polygons(col = "permits_count", border.alpha = 0, palette = mono_5_green, style = "fisher", colorNA = "lightgrey") +
   tm_facets(along = "year") +
   tm_shape(broad_and_market) +
@@ -131,16 +140,18 @@ tmap_animation(tm, "assets/permits_animation.gif", delay = 50)
 ### Data
 
 ```{r eda}
-ggplot(building_permits %>% filter(year != 2023), aes(x = as.factor(year))) +
-  geom_bar() +
-  labs(title = "Permits per Year")
+ggplot(building_permits %>% filter(!year %in% c(2024)), aes(x = as.factor(year))) +
+  geom_bar(fill = palette[1], color = NA, alpha = 0.7) +
+  labs(title = "Permits per Year") +
+  theme_minimal()
 
-ggplot(permits_bg %>% st_drop_geometry %>% filter(year != 2023), aes(x = permits_count)) +
-  geom_histogram() +
+ggplot(permits_bg %>% st_drop_geometry %>% filter(!year %in% c(2024)), aes(x = permits_count)) +
+  geom_histogram(fill = palette[1], color = NA, alpha = 0.7) +
   labs(title = "Permits per Block Group per Year",
        subtitle = "Log-Transformed") +
   scale_x_log10() +
-  facet_wrap(~year)
+  facet_wrap(~year) +
+  theme_minimal()
 # 
 # tm_shape(permits_bg) +
 #   tm_polygons("spat_lag_permits", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
@@ -167,22 +178,93 @@ perms_x_dist_sum <- bind_rows(perms_x_dist_sum, perms_x_dist_mean) %>%
                         mutate(color = ifelse(DISTRICT != "Average", 0, 1))
 
 ggplotly(
-ggplot(perms_x_dist_sum %>% filter(year > 2013, year < 2023), aes(x = year, y = permits_count, color = as.character(color), group = interaction(DISTRICT, color))) +
-  geom_line(lwd = 0.5) +
+ggplot(perms_x_dist_sum %>% filter(year > 2013, year < 2024), aes(x = year, y = permits_count, color = as.character(color), group = interaction(DISTRICT, color))) +
+  geom_line(lwd = 0.7) +
   labs(title = "Permits per Year by Council District",
        y = "Total Permits") +
   # facet_wrap(~DISTRICT) +
   theme_minimal() +
-  theme(axis.title.x = element_blank()) +
-  scale_color_manual(values = c(palette[5], palette[2]))
+  theme(axis.title.x = element_blank(),
+        legend.position = "none") +
+  scale_color_manual(values = c(palette[5], palette[1]))
 )
+```
+
+##### Correlation Tests
+```{r corrplot}
+corr_vars <- c("total_pop",
+               "med_inc",
+               "percent_nonwhite",
+               "percent_renters",
+               "rent_burden",
+               "ext_rent_burden")
+
+corr_dat <- permits_bg %>% select(all_of(corr_vars)) %>% select(where(is.numeric)) %>% st_drop_geometry() %>% unique() %>% na.omit()
+
+corr <- round(cor(corr_dat), 2)
+p.mat <- cor_pmat(corr_dat)
+
+ggcorrplot(corr, p.mat = p.mat, hc.order = TRUE,
+    type = "full", insig = "blank", lab = TRUE, colors = c(palette[2], "white", palette[3]))
+```
+
+##### Emerging Hotspots
+
+Local Moran's i for 2023
+```{r moran}
+lisa <- permits_bg %>% 
+  filter(year == 2023) %>%
+  mutate(nb = st_contiguity(geometry),
+                         wt = st_weights(nb),
+                         permits_lag = st_lag(permits_count, nb, wt),
+          moran = local_moran(permits_count, nb, wt)) %>% 
+  tidyr::unnest(moran) %>% 
+  mutate(pysal = ifelse(p_folded_sim <= 0.1, as.character(pysal), NA),
+         hotspot = case_when(
+           pysal == "High-High" ~ "Signficant",
+           TRUE ~ "Not Signficant"
+         ))
+
+# 
+# palette <- c("High-High" = "#B20016", 
+#              "Low-Low" = "#1C4769", 
+#              "Low-High" = "#24975E", 
+#              "High-Low" = "#EACA97")
+
+morans_i <- tm_shape(lisa) +
+  tm_polygons(col = "ii", border.alpha = 0, style = "jenks", palette = 'viridis')
+
+p_value <- tm_shape(lisa) +
+  tm_polygons(col = "p_ii", border.alpha = 0, style = "jenks", palette = '-viridis')
+
+sig_hotspots <- tm_shape(lisa) +
+  tm_polygons(col = "hotspot", border.alpha = 0, style = "cat", palette = 'viridis', textNA = "Not a Hotspot")
+
+tmap_arrange(morans_i, p_value, sig_hotspots, ncol = 3)
+```
+Emergeging hotspots
+
+```{r mann kendall}
+# stc <- as_spacetime(permits_bg,
+#                  .loc_col = "geoid10",
+#                  .time_col = "year")
+# 
+# # conduct EHSA
+# ehsa <- emerging_hotspot_analysis(
+#   x = stc, 
+#   .var = "permits_count", 
+#   k = 1, 
+#   nsim = 5
+# )
+# 
+# count(ehsa, classification)
 ```
 
 #### Feature Engineering
 
 ```{r corrplots}
 permits_bg_long <- permits_bg %>%
-                    filter(year != 2023) %>%
+                    filter(!year %in% c(2024)) %>%
                     st_drop_geometry() %>%
                     pivot_longer(
                       cols = c(starts_with("lag"), dist_to_2022),
@@ -202,15 +284,18 @@ ggscatter(permits_bg_long, x = "permits_count", y = "Value", facet.by = "Variabl
 
 ## Results
 
-
+Make sure to note that we train, test, and *then* validate. So these first models are based on 2022 data, and then we run another on 2023 (and then predict 2024 at the end).
 
 ### OLS Regression
 To begin, we run a simple regression incorporating three engineered groups of features: space lag, time lag, and distance to 2022. We include this last variable because of a Philadelphia tax abatement policy that led to a significant increase in residential development in the years immediately before 2022. We will use this as a baseline model to compare to our more complex models.
 
+(We considered a Poisson model but found that it struggled with outliers.)
+
 ```{r reg test}
-permits_train <- filter(permits_bg %>% select(-mapname), year < 2022)
-permits_test <- filter(permits_bg %>% select(-mapname), year == 2022)
-permits_validate <- filter(permits_bg %>% select(-mapname), year == 2023)
+permits_train <- filter(permits_bg %>% select(-c(mapname, geoid10)), year < 2022)
+permits_test <- filter(permits_bg %>% select(-c(mapname, geoid10)), year == 2022)
+permits_validate <- filter(permits_bg %>% select(-c(mapname, geoid10)), year == 2023)
+permits_predict <- filter(permits_bg %>% select(-c(mapname, geoid10)), year == 2024)
 
 reg <- lm(permits_count ~ ., data = st_drop_geometry(permits_train))
 
@@ -236,34 +321,7 @@ tm_shape(predictions) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE) 
 ```
-### Poisson Model
-Given that we are dealing with a skewed distribution of count data
-```{r poisson}
-poisson_reg <- glm(permits_count ~ ., 
-                   family = poisson(link = "log"),
-                   data = st_drop_geometry(permits_train))
 
-poisson_predictions <- predict(poisson_reg, permits_test, type = "response")
-poisson_predictions <- cbind(permits_test, poisson_predictions)
-
-poisson_predictions <- poisson_predictions %>%
-                           mutate(abs_error = abs(permits_count - poisson_predictions),
-                                  pct_error = abs_error / permits_count)
-
-ggplot(poisson_predictions, aes(x = permits_count, y = poisson_predictions)) +
-  geom_point() +
-  labs(title = "Predicted vs. Actual Permits",
-       subtitle = "2022") +
-  geom_smooth(method = "lm", se = FALSE)
-
-poisson_mae <- paste0("MAE: ", round(mean(poisson_predictions$abs_error, na.rm = TRUE), 2))
-
-tm_shape(poisson_predictions) +
-        tm_polygons(col = "abs_error", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
-  tm_shape(broad_and_market) +
-  tm_lines(col = "lightgrey") +
-  tm_layout(frame = FALSE)
-```
 
 We find that our OLS model has an MAE of only `r mae`--not bad for such a simple model! Still, it struggles most in the areas where we most need it to succeed, so we will try to introduce better variables and apply a more complex model to improve our predictions.
 
@@ -280,6 +338,12 @@ rf_predictions <- rf_predictions %>%
                   mutate(abs_error = abs(permits_count - rf_predictions),
                          pct_error = abs_error / (permits_count + 0.0001))
 
+tm_shape(rf_predictions) +
+        tm_polygons(col = "rf_predictions", border.alpha = 0, palette = mono_5_green, style = "fisher", colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE) 
+
 ggplot(rf_predictions, aes(x = permits_count, y = rf_predictions)) +
   geom_point() +
   labs(title = "Predicted vs. Actual Permits",
@@ -290,7 +354,7 @@ ggplot(rf_predictions, aes(x = permits_count, y = rf_predictions)) +
 rf_mae <- paste0("MAE: ", round(mean(rf_predictions$abs_error, na.rm = TRUE), 2))
 
 tm_shape(rf_predictions) +
-        tm_polygons(col = "abs_error", border.alpha = 0, palette = 'viridis', style = "fisher", colorNA = "lightgrey") +
+        tm_polygons(col = "abs_error", border.alpha = 0, palette = mono_5_orange, style = "fisher", colorNA = "lightgrey") +
   tm_shape(broad_and_market) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE) 
@@ -319,19 +383,6 @@ hmm <- permits_bg %>%
 ### Generalizabiltiy
 
 ```{r race}
-# tm_shape(acs22) +
-#         tm_polygons(col = "Percent_Nonwhite", border.alpha = 0, palette = mono_5_orange, style = "fisher", colorNA = "lightgrey") +
-#   tm_shape(broad_and_market) +
-#   tm_lines(col = "lightgrey") +
-#   tm_layout(frame = FALSE)
-# 
-# 
-# tm_shape(acs22) +
-#         tm_polygons(col = "Ext_Rent_Burden", border.alpha = 0, palette = mono_5_orange, style = "fisher", colorNA = "lightgrey") +
-#   tm_shape(broad_and_market) +
-#   tm_lines(col = "lightgrey") +
-#   tm_layout(frame = FALSE)
-
 rf_predictions <- rf_predictions %>%
                       mutate(race_comp = case_when(
                         percent_nonwhite >= .50 ~ "Majority Non-White",
@@ -341,12 +392,43 @@ rf_predictions <- rf_predictions %>%
 ggplot(rf_predictions, aes(y = abs_error, color = race_comp)) +
   geom_boxplot(fill = NA)
 ```
-How does this generalize across neighborhoods?
-```{r neighborhood}
+
+We find that error is not related to affordability and actually trends downward with percent nonwhite. (This is probably because there is less total development happening there in majority-minority neighborhoods to begin with, so the magnitude of error is less, even though proportionally it might be more.) Error increases slightly with total pop. This makes sense--more people --> more development.
+```{r rent x error scatter}
+ggplot(rf_predictions, aes(y = abs_error, x = rent_burden)) + # or whatever the variable is
+  geom_point() +
+  geom_smooth(method = "lm", se= FALSE) +
+  theme_minimal()
+
+ggplot(rf_predictions, aes(y = abs_error, x = percent_nonwhite)) + # or whatever the variable is
+  geom_point() +
+  geom_smooth(method = "lm", se= FALSE) +
+  theme_minimal()
+
+ggplot(rf_predictions, aes(y = abs_error, x = total_pop)) + # or whatever the variable is
+  geom_point() +
+  geom_smooth(method = "lm", se= FALSE) +
+  theme_minimal()
+
+ggplot(rf_predictions, aes(y = abs_error, x = med_inc)) + # or whatever the variable is
+  geom_point() +
+  geom_smooth(method = "lm", se= FALSE) +
+  theme_minimal()
 ```
 
 How does this generalize across council districts?
+Don't forget to refactor
+
 ```{r council district}
+suppressMessages(
+  ggplot(rf_predictions, aes(x = reorder(district, abs_error, FUN = mean), y = abs_error)) +
+    geom_boxplot(fill = NA) +
+    labs(title = "MAE by Council District",
+         y = "Mean Absolute Error",
+         x = "Council District") +
+    theme_minimal() +
+    theme()
+)
 ```
 
 ### Assessing Upzoning Needs
@@ -356,7 +438,8 @@ Look at zoning that is industrial or residential single family in areas that our
 ```{r inappropriate zoning}
 filtered_zoning <- zoning %>%
                      filter(str_detect(CODE, "RS") | str_detect(CODE, "I"),
-                            CODE != "I2")
+                            CODE != "I2",
+                            !str_detect(CODE, "SP"))
 
 
 tm_shape(filtered_zoning) +
@@ -373,7 +456,7 @@ filtered_zoning <- st_join(
 )
 
 tm_shape(filtered_zoning) +
-        tm_polygons(col = "rf_predictions", border.alpha = 0, colorNA = "lightgrey", palette = "viridis", style = "fisher") +
+        tm_polygons(col = "rf_predictions", border.alpha = 0, colorNA = "lightgrey", palette = mono_5_orange, style = "fisher") +
   tm_shape(broad_and_market) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE)
@@ -457,7 +540,16 @@ Just for shits and giggles, throw in 2024 predictions.
 (Can use data from 2023.)
 ```{r go crazy}
 
-# need to create a new dataframe with year = 2024, spatial and temporal lag based on 2023, and most recent ACS data (2022)
+rf_predictions_2024 <- predict(rf, permits_predict)
+rf_predictions_2024 <- cbind(permits_predict, rf_predictions_2024)
+
+
+tm_shape(rf_predictions_2024) +
+        tm_polygons(col = "rf_predictions_2024", border.alpha = 0, palette = mono_5_green, style = "fisher", colorNA = "lightgrey") +
+  tm_shape(broad_and_market) +
+  tm_lines(col = "lightgrey") +
+  tm_layout(frame = FALSE) 
+
 
 ```
 

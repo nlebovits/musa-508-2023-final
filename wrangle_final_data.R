@@ -83,7 +83,7 @@ acs22_reg_vars <- phl_spat_read(acs_vars22_path) %>%
 ### wrangle data--------------------------------------------------
 # Create a complete grid of GEOID10 and year
 geoid_years <- expand.grid(GEOID10 = unique(phl_bgs$GEOID10),
-                           year = unique(building_permits$year))
+                           year = c(unique(building_permits$year), 2024))
 
 
 
@@ -219,7 +219,7 @@ permits_bg <- bind_rows(permits_joined_thru_2018,
 
 ### clean-----------------------------------------------------
 final <- permits_bg %>%
-  select(-c(nb, wt, GEOID10)) %>%
+  select(-c(nb, wt)) %>%
   clean_names()
 
 ### write final dataset to data folder
