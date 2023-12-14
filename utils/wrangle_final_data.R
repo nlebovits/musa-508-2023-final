@@ -223,4 +223,4 @@ final <- permits_bg %>%
   clean_names()
 
 ### write final dataset to data folder
-st_write(final, "./data/final_dataset.geojson")
+st_write(final, "../data/final_dataset.geojson")

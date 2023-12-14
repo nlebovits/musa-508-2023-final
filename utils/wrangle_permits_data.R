@@ -42,4 +42,4 @@ building_permits <- st_as_sf(get_carto(building_perms_query,
 
 
 ## need to write permits to the data subfolder
-st_write(building_permits, "./data/building_permits.geojson")
+st_write(building_permits, "../data/building_permits.geojson")

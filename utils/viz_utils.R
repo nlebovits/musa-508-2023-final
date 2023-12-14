@@ -1,4 +1,35 @@
 
+### tmap theme------------------------------------
+
+tmap_theme <- function(tm_obj, main_title){
+  tm_obj +
+    tm_layout(frame = FALSE,
+              main.title = main_title,
+              main.title.size = 1,
+              legend.outside = FALSE,
+              inner.margins = c(0.06, 0.10, 0.10, 0.08)
+    ) +
+    #tm_scale_bar(color.dark = "gray60",
+     #            position = c("left", "bottom")) +
+    tm_layout(legend.position = c("right", "bottom"))
+    # tm_compass(type = "4star", size = 2.5, text.size = 0.5,
+    #            color.dark = "gray60", text.color = "gray60",
+    #            position = c("left", "top")) +
+    # tm_credits("Philadelphia, PA", fontface = "italic", align = "right")
+}
+
+tmap_theme_minimal <- function(tm_obj, main_title){
+  tm_obj +
+    tm_layout(frame = FALSE,
+              main.title = main_title,
+              main.title.size = 1,
+              legend.outside = FALSE,
+              inner.margins = c(0.06, 0.10, 0.10, 0.08)
+    )
+}
+
+
+
 mapTheme <- function(base_size = 12, title_size = 12, subtitle_size = 10) {
   theme(
     text = element_text(color = "black"),
@@ -42,8 +73,18 @@ plotTheme <- function(base_size = 12, title_size = 12, subtitle_size = 10) {
 
 ### kable table
 
-kablerize <- function(df, caption){
-  df %>%
-    kbl(caption = caption) %>%
-    kable_minimal(full_width = F)
+kablerize <- function(df, caption = NULL) {
+  # Check if a caption is provided
+  if (!is.null(caption) && caption != "") {
+    df %>%
+      kbl(caption = caption) %>%
+      kable_minimal(full_width = F) %>%
+      scroll_box(width = "100%", height = "500px")
+  } else {
+    df %>%
+      kbl() %>%
+      kable_minimal(full_width = F) %>%
+      scroll_box(width = "100%", height = "500px")
+  }
 }
+

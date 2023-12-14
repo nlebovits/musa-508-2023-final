@@ -286,6 +286,6 @@ phl_acs22_final <- left_join(acs_22_to_2010_bgs_int, acs_22_to_2010_bgs_ext, by 
 
 
 ### write----------------------------------------------------------------------------
-st_write(phl_acs14, "./data/acs_vars14.geojson") # paths already defined in config file
-st_write(phl_acs19, "./data/acs_vars19.geojson")
-st_write(phl_acs22_final, "./data/acs_vars22.geojson")
+st_write(phl_acs14, "../data/acs_vars14.geojson") # paths already defined in config file
+st_write(phl_acs19, "../data/acs_vars19.geojson")
+st_write(phl_acs22_final, "../data/acs_vars22.geojson")

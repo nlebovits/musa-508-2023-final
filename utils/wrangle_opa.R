@@ -24,4 +24,4 @@ opa_properties <- st_as_sf(get_carto(query,
                              crs = st_crs('EPSG:4326')) |>
   st_transform(crs = st_crs("EPSG:2272"))
 
-st_write(opa_properties, './data/opa_properties.geojson')
+st_write(opa_properties, '../data/opa_properties.geojson')

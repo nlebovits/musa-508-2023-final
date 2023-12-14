@@ -47,7 +47,7 @@ ols_preds <- cbind(t_test, ols_preds) %>%
   select(ols_preds, all_of(keep_cols))
 
 # save results
-st_write(ols_preds, './data/model_outputs/ols_preds.geojson')
+st_write(ols_preds, '../data/model_outputs/ols_preds.geojson')
 
 ### rf test----------------------------------------
 rf_test <- randomForest(permits_count ~ ., 
@@ -61,7 +61,7 @@ rf_test_preds <- cbind(t_test, rf_test_preds)%>%
                            pct_error = abs_error / (permits_count + 0.0001))%>% 
                     select(rf_test_preds, all_of(keep_cols))
 
-st_write(rf_test_preds, './data/model_outputs/rf_test_preds.geojson')
+st_write(rf_test_preds, '../data/model_outputs/rf_test_preds.geojson')
 
 
 ### rf validate---------------------------------------
@@ -76,7 +76,7 @@ rf_val_preds <- cbind(v_test, rf_val_preds)%>%
          pct_error = abs_error / (permits_count + 0.0001))%>% 
   select(rf_val_preds, all_of(keep_cols))
 
-st_write(rf_val_preds, './data/model_outputs/rf_val_preds.geojson')
+st_write(rf_val_preds, '../data/model_outputs/rf_val_preds.geojson')
 
 
 ### rf project----------------------------------
@@ -91,4 +91,4 @@ rf_proj_preds <- cbind(p_predict, rf_proj_preds)%>%
          pct_error = abs_error / (permits_count + 0.0001))%>% 
   select(rf_proj_preds, all_of(keep_cols))
 
-st_write(rf_proj_preds, './data/model_outputs/rf_proj_preds.geojson')
+st_write(rf_proj_preds, '../data/model_outputs/rf_proj_preds.geojson')
