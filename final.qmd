@@ -59,15 +59,14 @@ source("utils/viz_utils.R")
 
 urls <- c(
   roads = 'https://opendata.arcgis.com/datasets/261eeb49dfd44ccb8a4b6a0af830fdc8_0.geojson', # for broad and market
-  council_dists = "https://opendata.arcgis.com/datasets/9298c2f3fa3241fbb176ff1e84d33360_0.geojson",
   building_permits = building_permits_path,
   permits_bg = final_dataset_path,
-  zoning = "https://opendata.arcgis.com/datasets/0bdb0b5f13774c03abf8dc2f1aa01693_0.geojson",
-  opa = "data/opa_properties.geojson",
+  filtered_zoning = "shiny/app_data.geojson",
   ols_preds = 'data/model_outputs/ols_preds.geojson',
   rf_test_preds = 'data/model_outputs/rf_test_preds.geojson',
   rf_val_preds = 'data/model_outputs/rf_val_preds.geojson',
-  rf_proj_preds = 'data/model_outputs/rf_proj_preds.geojson'
+  rf_proj_preds = 'data/model_outputs/rf_proj_preds.geojson',
+  council_dists = "https://opendata.arcgis.com/datasets/9298c2f3fa3241fbb176ff1e84d33360_0.geojson"
   
 )
 
@@ -78,9 +77,6 @@ suppressMessages({
 })
 
 broad_and_market <- roads %>% filter(ST_NAME %in% c('BROAD',"MARKET") | SEG_ID %in% c(440370, 421347,421338,421337,422413,423051,440403,440402,440391,440380))
-
-council_dists <- council_dists %>%
-                    select(DISTRICT)
 
 building_permits <- building_permits %>%
                       filter(permittype %in% c("RESIDENTIAL BUILDING", "BP_ADDITION", "BP_NEWCNST"))
@@ -455,7 +451,7 @@ tmap_arrange(test_preds_map, test_error_map)
 
 ## Model Testing
 
-Model training, validation, and testing involved three steps. First, we partitioned our data into training, validation, and testing sets. We used data from 2013 through 2021 for initial model training. Next, we evaluated our models' ability to accurately predict 2022 construction permits using our validation set, which consisted of all permits in 2022. We carried out additional feature engineering and model tuning, iterating based on the results of these training and testing splits. We sought to minimize both the mean absolute error (MAE) of our best model and the distribution of absolute error. Finally, when we were satisfied with the results of our best model, we evaluated it again by training it on all data from 2013 through 2022 and validating it on data from 2023 (all but the last two weeks, which we consider negligible for our purposes), which the model had never "seen" before. As Kuhn and Johnson write in [Applied Predictive Modeling (2013)]((https://www.amazon.com/Applied-Predictive-Modeling-Max-Kuhn/dp/1461468485/ref=as_li_ss_tl?dchild=1&keywords=Applied+Predictive+Modeling&qid=1597365412&sr=8-1&linkCode=sl1&tag=inspiredalgor-20&linkId=0d09eefbda1ecba5066f6b37df9d5ff6&language=en_US)), "Ideally, the model should be evaluated on samples that were not used to build or fine-tune the model, so that they provide an unbiased sense of model effectiveness." (Code for all of these steps [is available on GitHub.](https://github.com/nlebovits/musa-508-2023-final/blob/main/utils/models.R))
+Model training, validation, and testing involved three steps. First, we partitioned our data into training, validation, and testing sets. We used data from 2013 through 2021 for initial model training. Next, we evaluated our models' ability to accurately predict 2022 construction permits using our validation set, which consisted of all permits in 2022. We carried out additional feature engineering and model tuning, iterating based on the results of these training and testing splits. We sought to minimize both the mean absolute error (MAE) of our best model and the distribution of absolute error. Finally, when we were satisfied with the results of our best model, we evaluated it again by training it on all data from 2013 through 2022 and validating it on data from 2023 (all but the last two weeks, which we consider negligible for our purposes), which the model had never "seen" before. As Kuhn and Johnson write in [Applied Predictive Modeling (2013)]((https://www.amazon.com/Applied-Predictive-Modeling-Max-Kuhn/dp/1461468485/ref=as_li_ss_tl?dchild=1&keywords=Applied+Predictive+Modeling&qid=1597365412&sr=8-1&linkcode=sl1&tag=inspiredalgor-20&linkId=0d09eefbda1ecba5066f6b37df9d5ff6&language=en_US)), "Ideally, the model should be evaluated on samples that were not used to build or fine-tune the model, so that they provide an unbiased sense of model effectiveness." (code for all of these steps [is available on GitHub.](https://github.com/nlebovits/musa-508-2023-final/blob/main/utils/models.R))
 
 Again, testing confirms the strength of our model; based on 2023 data, our random forest model produces a MAE of `r round(mean(rf_val_preds$abs_error, na.rm = TRUE), 2)`. We note again that the range of model error is relatively narrow. Generally, we see that where the model predicts there to be more permits, there is also higher error. This spatial trend is also seen in the distribution of absolute errors clustering in a handful of block groups with high permit counts.
 
@@ -535,15 +531,8 @@ suppressMessages(
 The core functionality of our SmartZoning tool is to identify conflict between projected development and current zoning. It is interesting to note that RSA4 and RSA5 (Residential Single-family Attached) zoning is also where we predict the most development pressure. When speaking with Jon Geeting, Engagement Director of Philadelphia 3.0, he noted that RSA4 and RSA5 are two of the most prohibitive zoning designations, especially in areas close to amenities like schools, grocery stores, and most of all, public transit. 
 
 ```{r restrictive zoning}
-filtered_zoning <- zoning %>%
-                     filter(str_detect(CODE, "RS") | str_detect(CODE, "I"),
-                            CODE != "I2",
-                            !str_detect(CODE, "SP")) %>%
-                     st_join(., rf_val_preds %>% select(rf_val_preds))
-
-
 zoning_map <- tmap_theme(tm_shape(filtered_zoning) +
-        tm_polygons(col = "CODE", border.alpha = 0, colorNA = "lightgrey", title = "Zoning Code", palette = zoning_palette) +
+        tm_polygons(col = "code", border.alpha = 0, colorNA = "lightgrey", title = "Zoning code", palette = zoning_palette) +
   tm_shape(broad_and_market) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE,
@@ -568,54 +557,20 @@ tmap_mode('view')
 filtered_zoning %>%
   filter(rf_val_preds > 10) %>%
 tm_shape() +
-        tm_polygons(col = "CODE", border.alpha = 0, colorNA = "lightgrey",
-                    popup.vars = c('rf_val_preds', 'CODE'), palette = zoning_palette) +
+        tm_polygons(col = "code", border.alpha = 0, colorNA = "lightgrey",
+                    popup.vars = c('rf_val_preds', 'code'), palette = zoning_palette) +
   tm_shape(broad_and_market) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE)
 ```
 
 ```{r assemblage}
-nbs <- filtered_zoning %>% 
-  mutate(nb = st_contiguity(geometry))
-
-# Create edge list while handling cases with no neighbors
-edge_list <- tibble::tibble(id = 1:length(nbs$nb), nbs = nbs$nb) %>% 
-  unnest(nbs) %>% 
-  filter(nbs != 0)
-
-# Create a graph with a node for each row in filtered_zoning
-g <- make_empty_graph(n = nrow(filtered_zoning))
-V(g)$name <- as.character(1:nrow(filtered_zoning))
-
-# Add edges if they exist
-if (nrow(edge_list) > 0) {
-  edges <- as.matrix(edge_list)
-  g <- add_edges(g, c(t(edges)))
-}
-
-# Calculate the number of contiguous neighbors and sum of contiguous areas
-n_contiguous <- numeric(nrow(filtered_zoning))
-sum_contig_area <- numeric(nrow(filtered_zoning))
-
-for (i in 1:nrow(filtered_zoning)) {
-  neighbors <- neighborhood(g, order = 1, nodes = i)[[1]]
-  # Exclude the node itself from its list of neighbors
-  neighbors <- neighbors[neighbors != i]
-  n_contiguous[i] <- length(neighbors)
-  sum_contig_area[i] <- sum(filtered_zoning$Shape__Area[neighbors], na.rm = TRUE)
-}
-
-contig_info <- data.frame(n_contig = unlist(n_contiguous), sum_contig_area = unlist(sum_contig_area))
-filtered_zoning <- cbind(filtered_zoning, contig_info)
-
-
 filtered_zoning %>%
   st_drop_geometry() %>%
   select(rf_val_preds,
          n_contig,
          sum_contig_area,
-         CODE) %>%
+         code) %>%
   filter(rf_val_preds > 10,
          n_contig > 2) %>%
   arrange(desc(rf_val_preds)) %>%
@@ -641,7 +596,9 @@ tmap_arrange(preds24, med_inc)
 
 ## Web Application
 
-Below is a wireframe preview of the SmartZoning web application; a [prototype built in Shiny is available here](https://nlebovits.shinyapps.io/smart-zoning/). The UX offers key features that leverages this study’s modeling and mapping.
+Below is a wireframe preview of the SmartZoning® web application; a [prototype built in Shiny is available here](https://nlebovits.shinyapps.io/smart-zoning/). The UX offers key features that leverages this study’s modeling and mapping.
+
+![Wireframe of SmartZoning® prototype](assets/wireframe.jpeg)
 
 Key Features:
 
