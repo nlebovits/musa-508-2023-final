@@ -56,3 +56,6 @@ data/model_outputs/
 # ignore quarto output
 /.quarto/
 /_site/
+
+# ignore
+shiny/app_data.geojson

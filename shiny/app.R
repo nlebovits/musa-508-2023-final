@@ -7,14 +7,15 @@ library(igraph)
 library(sfdep)
 library(conflicted)
 library(terra)
+library(monochromeR)
 
-# source("./config.R")
 
 filter <- dplyr::filter
 select <- dplyr::select
 
+mono_5_green <- rev(generate_palette("#1cb979", modification = "go_lighter", n_colours = 5, view_palette = FALSE)) 
 
-filtered_zoning <- st_read("../data/model_outputs/app_data.geojson", quiet = TRUE)
+filtered_zoning <- st_read("app_data.geojson", quiet = TRUE)
 
 
 # Define UI--------------------------------------------
