@@ -119,24 +119,29 @@ tm <- tmap_theme(tm_shape(permits_bg %>% filter(!year %in% c(2012, 2024))) +
 suppressMessages(
 tmap_animation(tm, "assets/permits_animation.gif", delay = 50)
 )
-```
 
-
-
-
-
-
-
-![Philadelphia Building Permits, 2013 - 2023](assets/permits_animation.gif)
-```{r permits per year}
-ggplot(building_permits %>% filter(!year %in% c(2024)), aes(x = as.factor(year))) +
+bar_graph <- ggplot(building_permits %>% filter(!year %in% c(2024)), aes(x = as.factor(year))) +
   geom_bar(fill = palette[1], color = NA, alpha = 0.7) +
   labs(title = "Permits per Year",
        y = "Count") +
   theme_minimal() +
   theme(axis.title.x = element_blank(),
-        aspect.ratio = .75)
+        aspect.ratio = 1.25)
+
+# Ensure the 'assets' directory exists
+if (!dir.exists("assets")) {
+  dir.create("assets")
+}
+
+# Save the plot
+ggsave(bar_graph, filename = "assets/permits_per_year.png")
 ```
+
+::: {layout-ncol=2}
+![](assets/permits_per_year.png)
+
+![Philadelphia Building Permits, 2013 - 2023](assets/permits_animation.gif)
+:::
 
 We note a significant uptick in new construction permits as we approach 2021, followed by a sharp decline. It is generally acknowledged that this trend was due to the [expiration of a tax abatement program](https://www.axios.com/local/philadelphia/2022/01/07/philadelphia-tax-abatement-permit-applications) for developers. 
  
@@ -180,7 +185,7 @@ permits_bg_long <- permits_bg %>%
                     filter(!year %in% c(2024)) %>%
                     st_drop_geometry() %>%
                     pivot_longer(
-                      cols = c(starts_with("lag"), dist_to_2022),
+                      cols = c(starts_with("lag")),
                       names_to = "Variable",
                       values_to = "Value"
                     )
@@ -188,9 +193,14 @@ permits_bg_long <- permits_bg %>%
 
 ggscatter(permits_bg_long, x = "permits_count", y = "Value", facet.by = "Variable",
    add = "reg.line",
-   add.params = list(color = palette[3], fill = palette[5]),
-   conf.int = TRUE
-   ) + stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01)
+   add.params = list(color = palette[3]),
+   conf.int = TRUE, alpha = 0.2
+   ) + 
+  stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 3) +
+  labs(title = "Correlation of `permits_count` and Engineered Features",
+       x = "Value",
+       y = "Permits Count") +
+  theme_minimal()
 ```
 
 ### Socioeconomic Features
@@ -316,15 +326,21 @@ lisa <- permits_bg %>%
 #              "High-Low" = "#EACA97")
 
 morans_i <- tmap_theme(tm_shape(lisa) +
-  tm_polygons(col = "ii", border.alpha = 0, style = "jenks", palette = mono_5_green, title = "Moran's I"),
+  tm_polygons(col = "ii", border.alpha = 0, style = "jenks", palette = mono_5_green, title = "Moran's I") +
+      tm_shape(broad_and_market) +
+  tm_lines(col = "darkgrey"),
   "Local Moran's I (2023)")
 
 p_value <- tmap_theme(tm_shape(lisa) +
-  tm_polygons(col = "p_ii", border.alpha = 0, style = "jenks", palette = mono_5_green, title = "P-Value"),
+  tm_polygons(col = "p_ii", border.alpha = 0, style = "jenks", palette = mono_5_green, title = "P-Value") +
+      tm_shape(broad_and_market) +
+  tm_lines(col = "darkgrey"),
   "Moran's I P-Value (2023)")
 
 sig_hotspots <- tmap_theme(tm_shape(lisa) +
-  tm_polygons(col = "hotspot", border.alpha = 0, style = "cat", palette = c(mono_5_green[1], mono_5_green[5]), textNA = "Not a Hotspot", title = "Hotspot?"),
+  tm_polygons(col = "hotspot", border.alpha = 0, style = "cat", palette = c(mono_5_green[1], mono_5_green[5]), textNA = "Not a Hotspot", title = "Hotspot?") +
+      tm_shape(broad_and_market) +
+  tm_lines(col = "darkgrey"),
   "Construction Hotspots (2023)")
 
 tmap_arrange(morans_i, p_value, sig_hotspots, ncol = 3)
@@ -333,31 +349,28 @@ tmap_arrange(morans_i, p_value, sig_hotspots, ncol = 3)
 Emergeging hotspots...? If I can get it to work.
 
 ```{r mann kendall}
-# # Prepare the data
-# permits_data <- permits_bg %>%
-#   select(permits_count, geoid10, year) %>%
-#   na.omit()
-# 
-# # Check for infinite values or other anomalies
-# if(any(is.infinite(permits_data$permits_count), na.rm = TRUE)) {
-#   stop("Infinite values found in permits_count")
-# }
-# 
-# # Create spacetime object
-# stc <- as_spacetime(permits_data,
-#                     .loc_col = "geoid10",
-#                     .time_col = "year")
-# 
-# # Run emerging hotspot analysis
-# ehsa <- emerging_hotspot_analysis(
-#   x = stc,
-#   .var = "permits_count",
-#   k = 1,
-#   nsim = 3
-# )
-# 
-# # Analyze the result
-# count(ehsa, classification)
+# Prepare the data
+permits_data <- permits_bg %>%
+  filter(year < 2024,
+         year > 2012) %>%
+  select(permits_count, geoid10, year) %>%
+  na.omit()
+
+# Create spacetime object
+stc <- as_spacetime(permits_data,
+                    .loc_col = "geoid10",
+                    .time_col = "year")
+
+# Run emerging hotspot analysis
+ehsa <- emerging_hotspot_analysis(
+  x = stc,
+  .var = "permits_count",
+  k = 1,
+  nsim = 25
+)
+
+# Analyze the result
+count(ehsa, classification)
 
 ```
 
@@ -374,7 +387,7 @@ Overall, we found that our basic OLS model performed quite well; with a mean abs
 ```{r ols graphs}
 suppressMessages(
 ggplot(ols_preds, aes(x = permits_count, y = ols_preds)) +
-  geom_point() +
+  geom_point(alpha = 0.2) +
   labs(title = "Predicted vs. Actual Permits: OLS",
        subtitle = "2022 Data",
        x = "Actual Permits",
@@ -410,7 +423,7 @@ Random forest models are superior to OLS in their ability to capture non-linear 
 ```{r rf plots}
 suppressMessages(
 ggplot(rf_test_preds, aes(x = permits_count, y = rf_test_preds)) +
-  geom_point() +
+  geom_point(alpha = 0.2) +
   labs(title = "Predicted vs. Actual Permits: RF",
        subtitle = "2022 Data",
        x = "Actual Permits",
@@ -442,7 +455,7 @@ tmap_arrange(test_preds_map, test_error_map)
 
 ## Model Testing
 
-Model training, validation, and testing involved three steps. First, we partitioned our data into training, validation, and testing sets. We used data from 2013 through 2021 for initial model training. Next, we evaluated our models' ability to accurately predict 2022 construction permits using our validation set, which consisted of all permits in 2022. We carried out additional feature engineering and model tuning, iterating based on the results of these training and testing splits. We sought to minimize both the mean absolute error (MAE) of our best model and the distribution of absolute error. Finally, when we were satisfied with the results of our best model, we evaluated it again by training it on all data from 2013 through 2022 and validating it on data from 2023 (all but the last two weeks, which we consider negligible for our purposes), which the model had never "seen" before. As Kuhn and Johnson write in [Applied Predictive Modeling (2013)]((https://www.amazon.com/Applied-Predictive-Modeling-Max-Kuhn/dp/1461468485/ref=as_li_ss_tl?dchild=1&keywords=Applied+Predictive+Modeling&qid=1597365412&sr=8-1&linkCode=sl1&tag=inspiredalgor-20&linkId=0d09eefbda1ecba5066f6b37df9d5ff6&language=en_US)), "Ideally, the model should be evaluated on samples that were not used to build or fine-tune the model, so that they provide an unbiased sense of model effectiveness." 
+Model training, validation, and testing involved three steps. First, we partitioned our data into training, validation, and testing sets. We used data from 2013 through 2021 for initial model training. Next, we evaluated our models' ability to accurately predict 2022 construction permits using our validation set, which consisted of all permits in 2022. We carried out additional feature engineering and model tuning, iterating based on the results of these training and testing splits. We sought to minimize both the mean absolute error (MAE) of our best model and the distribution of absolute error. Finally, when we were satisfied with the results of our best model, we evaluated it again by training it on all data from 2013 through 2022 and validating it on data from 2023 (all but the last two weeks, which we consider negligible for our purposes), which the model had never "seen" before. As Kuhn and Johnson write in [Applied Predictive Modeling (2013)]((https://www.amazon.com/Applied-Predictive-Modeling-Max-Kuhn/dp/1461468485/ref=as_li_ss_tl?dchild=1&keywords=Applied+Predictive+Modeling&qid=1597365412&sr=8-1&linkCode=sl1&tag=inspiredalgor-20&linkId=0d09eefbda1ecba5066f6b37df9d5ff6&language=en_US)), "Ideally, the model should be evaluated on samples that were not used to build or fine-tune the model, so that they provide an unbiased sense of model effectiveness." (Code for all of these steps [is available on GitHub.](https://github.com/nlebovits/musa-508-2023-final/blob/main/utils/models.R))
 
 Again, testing confirms the strength of our model; based on 2023 data, our random forest model produces a MAE of `r round(mean(rf_val_preds$abs_error, na.rm = TRUE), 2)`. We note again that the range of model error is relatively narrow. Generally, we see that where the model predicts there to be more permits, there is also higher error. This spatial trend is also seen in the distribution of absolute errors clustering in a handful of block groups with high permit counts.
 
@@ -465,7 +478,7 @@ tmap_arrange(val_preds_map, val_error_map)
 
 suppressMessages(
 ggplot(rf_val_preds, aes(x = permits_count, y = rf_val_preds)) +
-  geom_point() +
+  geom_point(alpha = 0.2) +
   labs(title = "Predicted vs. Actual Permits: RF",
        subtitle = "2023 Data",
        x = "Actual Permits",
@@ -481,9 +494,7 @@ When comparing the spread of predicted versus actual permits, there is more dive
 
 ## Generalizabiltiy
 
-Generally, the constructed scatterplots indicate that the model generalizes effectively, showcasing consistent and relatively low absolute errors across income, racial mix, rent burden, and total population. The discernible similarity in error distributions suggests that the model's predictive performance remains robust and affirms its ability to generalize successfully.
-
-When looking at each plot more critically, our analysis reveals that the error is not correlated with affordability and demonstrates a downward trend in conjunction with the percentage of the nonwhite population. This observed pattern may be attributed to the likelihood that majority-minority neighborhoods experience a comparatively lower volume of overall development, thereby diminishing the absolute magnitude of error, despite potential proportional increases. Additionally, there is a slight increase in error with the total population, aligning with the intuitive expectation that higher population figures correspond to more extensive development activities.
+Comparing model error per block group to several sociodemographic characteristics indicates that the model generalizes well; it displays consistent and relatively low absolute errors across income, racial mix, rent burden, and total population. Error is not correlated with affordability and in fact is slightly negatively correlated with the percentage of the nonwhite population. This observed pattern may be attributed to the likelihood that majority-minority neighborhoods experience a comparatively lower volume of overall development, thereby diminishing the absolute magnitude of error, despite potential proportional increases. Additionally, there is a slight increase in error with the total population, aligning with the expectation that higher population figures correspond to more extensive development activities.
 
 ```{r rent x error scatter}
 rf_val_preds_long <- rf_val_preds %>%
@@ -497,7 +508,7 @@ rf_val_preds_long <- rf_val_preds %>%
   ))
 
 ggplot(rf_val_preds_long, aes(x = value, y = abs_error)) +
-  geom_point() +
+  geom_point(alpha = 0.2) +
   geom_smooth(method = "lm", se = FALSE, color = palette[3]) +
   facet_wrap(~ variable, scales = "free_x") +
   labs(title = "Generalizability of Absolute Error",
@@ -506,7 +517,7 @@ ggplot(rf_val_preds_long, aes(x = value, y = abs_error)) +
   theme_minimal()
 ```
 
-Considering the reign of concilmanic perogative in Philadelphia, briefly discussed in the Background, it is important to ask whether the model is generalizable across the city’s 10 council districts. Consistent the error distributions previously discussed, the council distriacts with the highest volume of permits also have the widest distribution of errors.
+Considering the reign of concilmanic perogative in Philadelphia, briefly discussed in the Background, it is important to ask whether the model is generalizable across the city’s 10 council districts. Consistent with the error distributions mentioned previously, we note that the council districts with the highest volume of permits also have the widest distribution of errors. That said, the overall distribution of error per district remains narrow; no district has a mean error above 3, and only district 5 has an upper quartile error above 5. Evidently, a handful of outliers drive up the MAE, but the model error is well-dsitributed overall.
 
 ```{r council district}
 suppressMessages(
@@ -521,9 +532,9 @@ suppressMessages(
 
 ## Assessing Upzoning Pressure
 
-The core functionality of our SmartZoning tool is to identiy conflict between projected development and current zoning. It is interesting to note that RSA4 and RSA5 (Residential Single-family Attached) zoning is also where we predict the most development pressure. When speaking with Jon Geeting, Engagement Director of Philadelphia 3.0, he noted that RSA4 and RSA5 are two of the most prohibitive zoning designations especially in areas close to amenities like schools, grocery stores, and most of all, public transit. 
+The core functionality of our SmartZoning tool is to identify conflict between projected development and current zoning. It is interesting to note that RSA4 and RSA5 (Residential Single-family Attached) zoning is also where we predict the most development pressure. When speaking with Jon Geeting, Engagement Director of Philadelphia 3.0, he noted that RSA4 and RSA5 are two of the most prohibitive zoning designations, especially in areas close to amenities like schools, grocery stores, and most of all, public transit. 
 
-```{r inappropriate zoning}
+```{r restrictive zoning}
 filtered_zoning <- zoning %>%
                      filter(str_detect(CODE, "RS") | str_detect(CODE, "I"),
                             CODE != "I2",
@@ -537,7 +548,7 @@ zoning_map <- tmap_theme(tm_shape(filtered_zoning) +
   tm_lines(col = "lightgrey") +
   tm_layout(frame = FALSE,
             legend.height = 0.4),
-  "Mismatched Zoning")
+  "Restrictive Zoning")
   
 mismatch <- tmap_theme(tm_shape(filtered_zoning) +
         tm_polygons(col = "rf_val_preds", border.alpha = 0, colorNA = "lightgrey", palette = mono_5_orange, style = "fisher", title = "Predicted New Permits") +
@@ -549,7 +560,7 @@ mismatch <- tmap_theme(tm_shape(filtered_zoning) +
 tmap_arrange(zoning_map, mismatch)
 ```
 
-Furthermore, we can identify properties with high potential for assemblage, which suggests the ability to accommodate high-density, multi-unit housing. Because developers seek out assemblage opportunities to create more sizable and therefore more economically viable projects, assemblage also drives development pressure. 
+Using these data, we can filter only for properties that 1) are zoned restrictively and 2) face high development pressure. We note that these properties occur primarily in Furthermore, we can identify properties with high potential for assemblage, which suggests the ability to accommodate high-density, multi-unit housing. Because developers seek out assemblage opportunities to create more sizable and therefore more economically viable projects, assemblage also drives development pressure. 
 
 ```{r interactive}
 tmap_mode('view')
@@ -564,15 +575,13 @@ tm_shape() +
   tm_layout(frame = FALSE)
 ```
 
-Furthermore, we can identify properties with high potential for assemblage, which suggests the ability to accomodate high-density, multi-unit housing.
-
 ```{r assemblage}
 nbs <- filtered_zoning %>% 
   mutate(nb = st_contiguity(geometry))
 
 # Create edge list while handling cases with no neighbors
 edge_list <- tibble::tibble(id = 1:length(nbs$nb), nbs = nbs$nb) %>% 
-  tidyr::unnest(nbs) %>% 
+  unnest(nbs) %>% 
   filter(nbs != 0)
 
 # Create a graph with a node for each row in filtered_zoning
@@ -585,23 +594,27 @@ if (nrow(edge_list) > 0) {
   g <- add_edges(g, c(t(edges)))
 }
 
-# Calculate the number of contiguous neighbors, handling nodes without neighbors
-n_contiguous <- sapply(V(g)$name, function(node) {
-  if (node %in% edges) {
-    length(neighborhood(g, order = 1, nodes = as.numeric(node))[[1]])
-  } else {
-    1  # Nodes without neighbors count as 1 (themselves)
-  }
-})
+# Calculate the number of contiguous neighbors and sum of contiguous areas
+n_contiguous <- numeric(nrow(filtered_zoning))
+sum_contig_area <- numeric(nrow(filtered_zoning))
 
-filtered_zoning <- filtered_zoning %>%
-                    mutate(n_contig = n_contiguous)
+for (i in 1:nrow(filtered_zoning)) {
+  neighbors <- neighborhood(g, order = 1, nodes = i)[[1]]
+  # Exclude the node itself from its list of neighbors
+  neighbors <- neighbors[neighbors != i]
+  n_contiguous[i] <- length(neighbors)
+  sum_contig_area[i] <- sum(filtered_zoning$Shape__Area[neighbors], na.rm = TRUE)
+}
+
+contig_info <- data.frame(n_contig = unlist(n_contiguous), sum_contig_area = unlist(sum_contig_area))
+filtered_zoning <- cbind(filtered_zoning, contig_info)
+
 
 filtered_zoning %>%
   st_drop_geometry() %>%
   select(rf_val_preds,
          n_contig,
-         OBJECTID,
+         sum_contig_area,
          CODE) %>%
   filter(rf_val_preds > 10,
          n_contig > 2) %>%
@@ -611,9 +624,7 @@ filtered_zoning %>%
 
 ## 2024 Predictions
 
-Using the trained and tested model, we predict where, in 2024, new construction permits are most likely to be filed and granted. Interestingly, when comparing the predicted map with median income distribution, development pressure is expectly to be greatest in block groups with higher median incomes. The relationship between predicted development and higher median incomes suggests that developers may be strategically targeting areas with greater economic prosperity to meet market demand, derisk return on investment, and tap into more robust infrastrucurre and local sevices.
-
-This is an exemplary insight that zoning advocates can leverage to push for smart growth policies by emphasizing the need for more equitable development policies, incentives for affordable housing, and more meaningful transit-oriented-development programs. 
+Using the trained and tested model, we predict where new construction permits are most likely to be filed and granted in 2024. Interestingly, when comparing the predicted map with median income distribution, development pressure is expected to be greatest in block groups with higher median incomes. The relationship between predicted development and higher median incomes suggests that developers may be strategically targeting areas with greater economic prosperity to meet market demand, de-risk return on investment, and tap into more robust infrastructure and local services. This is a keu insight that zoning advocates can leverage to push for smart growth policies by emphasizing the need for more equitable development policies, incentives for affordable housing, and more meaningful transit-oriented-development programs. 
 
 ```{r rf project}
 tmap_mode('plot')
@@ -630,29 +641,23 @@ tmap_arrange(preds24, med_inc)
 
 ## Web Application
 
-Here is a preview of the SmartZoning web application. The UX offers key features that leverages this study’s modeling and mapping.
+Below is a wireframe preview of the SmartZoning web application; a [prototype built in Shiny is available here](https://nlebovits.shinyapps.io/smart-zoning/). The UX offers key features that leverages this study’s modeling and mapping.
 
-Key Features: 
-* Interactive parcel level map that makes key information about parcel easily accessible 
-* Filters to enhance spatial exploration customizable to difference audiences
-* View switch between current development and future development (v2 could include historical permit and zoning data for powerful comparatives) 
-* Compare functionality to understand neighborhood context
-* Customizable report generator to instantly create actionable assets
+Key Features:
 
-```{=html}
-<iframe src="https://nlebovits.shinyapps.io/smart-zoning/" title="SmartZoning® UI Prototype"></iframe>
-```
+- Interactive parcel level map that makes key information about parcel easily accessible 
+- Filters to enhance spatial exploration customizable to difference audiences
+- View switch between current development and future development (v2 could include historical permit and zoning data for powerful comparatives) 
+- Compare functionality to understand neighborhood context
+- Customizable report generator to instantly create actionable assets
 
-The tool is currently in beta testing. The goal is to optimize the tool for zoning advocate use case. What is most critical is to prioritize the buttons and filters so that advocates can use the tool as a real-time accessory in negotiatoins with council members, planning commissions, and other critical stakeholers. 
+The tool is currently in beta testing. The goal is to optimize it for the use case of a smart growth or rezoning advocate use case. What is most critical is to prioritize the buttons and filters so that advocates can use the tool as a real-time accessory in negotiations with council members, planning commissions, and other critical stakeholders. 
 
-The intended impact is to provide advocates with data-driven insights that can eloquently and efficiently make the case for streamlining smart growth policies. By providing a novel fidelity of layered data, users will be able to able to proactively engage decision makers. *Stay tuned for more updates.*
+The intended impact is to provide advocates with data-driven insights that can eloquently and efficiently make the case for streamlining smart growth policies. By providing an unprecedented combination of predictions and supplmentary data, the SmartZoning® tool will enable users to proactively engage decision makers. *Stay tuned for more updates.*
 
 
 ## Next Steps
 
-SmartZoning® emphasizes the importance of data-driven decision-making in zoning. Utilizing parcel level data to comprehensively analysis the whole city helps to identify areas with the potential for growth and guide zoning decisions that prioritize a balanced and equitable distribution of development opportunities. 
+SmartZoning® emphasizes the importance of data-driven decision-making in zoning. Utilizing parcel level data to comprehensively analyze the whole city helps to identify areas with the potential for growth and guide zoning decisions that prioritize a balanced and equitable distribution of development opportunities. 
 
-In future iterations, the model may want to focus on the potential for upzoning in areas where there are no permits predicted but high income, such as in Center City and Society Hill. To address concerns that by highlighting where upzoning is hapoening now and potentially exacerbating gentrification trends in neighborhoods like Fairmount and Grays Ferry, the model could be calibrated to suggest development mismatch in underdeveloped, but high income areas. The goal is to create a balanced and inclusive approach to development that benefits the existing community, preserves neighborhood character, and provides opportunities for all residents - SmartZoning can help inform how this balance is struck.  
-
-
-## Appendices
+In future iterations, the model may want to focus on the potential for upzoning in areas where there are no permits predicted but high income, such as in Center City and Society Hill. To address concerns that by highlighting where upzoning is happening now and potentially exacerbating gentrification trends in neighborhoods like Fairmount and Grays Ferry, the model could be calibrated to suggest development mismatch in underdeveloped, but high income areas. The goal is to create a balanced and inclusive approach to development that benefits the existing community, preserves neighborhood character, and provides opportunities for all residents - SmartZoning® can help inform how this balance is struck.  
