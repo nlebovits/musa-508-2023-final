@@ -7,8 +7,23 @@ suppressWarnings(
 select <- dplyr::select
 filter <- dplyr::filter
 
+# droppping these columns based on VIF
+drop_cols <- c(
+  'hist_dist_na',
+  'hist_dist_historic_street_paving_thematic_district',
+  'overlay_fne',
+  'overlay_ne',
+  'overlay_nis',
+  'overlay_ndo',
+  'overlay_fdo',
+  'overlay_edo',
+  'overlay_vdo'
+)
 
-permits_bg <- st_read(final_dataset_path, quiet = TRUE)
+
+permits_bg <- st_read(final_dataset_path, quiet = TRUE) %>%
+                select(-c(drop_cols))
+
 
 ### organize data
 
@@ -38,7 +53,7 @@ keep_cols <- c("permits_count",
 
 
 ### ols----------------------------------------------
-ols <- lm(permits_count ~ ., data = st_drop_geometry(t_train))
+ols <- lm(permits_count ~ ., data = st_drop_geometry(t_train) %>% select(-district))
 
 ols_preds <- predict(ols, t_test)
 ols_preds <- cbind(t_test, ols_preds) %>%
@@ -47,11 +62,11 @@ ols_preds <- cbind(t_test, ols_preds) %>%
   select(ols_preds, all_of(keep_cols))
 
 # save results
-st_write(ols_preds, '../data/model_outputs/ols_preds.geojson')
+st_write(ols_preds, './data/model_outputs/ols_preds.geojson')
 
 ### rf test----------------------------------------
 rf_test <- randomForest(permits_count ~ ., 
-                   data = st_drop_geometry(t_train),
+                   data = st_drop_geometry(t_train) %>% select(-district),
                    importance = TRUE, 
                    na.action = na.omit)
 
@@ -61,12 +76,12 @@ rf_test_preds <- cbind(t_test, rf_test_preds)%>%
                            pct_error = abs_error / (permits_count + 0.0001))%>% 
                     select(rf_test_preds, all_of(keep_cols))
 
-st_write(rf_test_preds, '../data/model_outputs/rf_test_preds.geojson')
+st_write(rf_test_preds, './data/model_outputs/rf_test_preds.geojson')
 
 
 ### rf validate---------------------------------------
 rf_val <- randomForest(permits_count ~ ., 
-                        data = st_drop_geometry(v_train),
+                        data = st_drop_geometry(v_train) %>% select(-district),
                         importance = TRUE, 
                         na.action = na.omit)
 
@@ -76,12 +91,12 @@ rf_val_preds <- cbind(v_test, rf_val_preds)%>%
          pct_error = abs_error / (permits_count + 0.0001))%>% 
   select(rf_val_preds, all_of(keep_cols))
 
-st_write(rf_val_preds, '../data/model_outputs/rf_val_preds.geojson')
+st_write(rf_val_preds, './data/model_outputs/rf_val_preds.geojson')
 
 
 ### rf project----------------------------------
 rf_proj <- randomForest(permits_count ~ ., 
-                       data = st_drop_geometry(p_train),
+                       data = st_drop_geometry(p_train) %>% select(-district),
                        importance = TRUE, 
                        na.action = na.omit)
 
@@ -91,4 +106,4 @@ rf_proj_preds <- cbind(p_predict, rf_proj_preds)%>%
          pct_error = abs_error / (permits_count + 0.0001))%>% 
   select(rf_proj_preds, all_of(keep_cols))
 
-st_write(rf_proj_preds, '../data/model_outputs/rf_proj_preds.geojson')
+st_write(rf_proj_preds, './data/model_outputs/rf_proj_preds.geojson')

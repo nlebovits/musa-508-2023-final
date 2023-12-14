@@ -1,22 +1,26 @@
 
 ### tmap theme------------------------------------
 
-tmap_theme <- function(tm_obj, main_title){
+tmap_theme <- function(tm_obj, main_title = NULL) {
+  tm_layout_args <- list(
+    frame = FALSE,
+    legend.outside = FALSE,
+    inner.margins = c(0.06, 0.10, 0.10, 0.08)
+  )
+  
+  # Only add main title if it is provided
+  if (!is.null(main_title)) {
+    tm_layout_args$main.title <- main_title
+    tm_layout_args$main.title.size <- 1
+  }
+  
   tm_obj +
-    tm_layout(frame = FALSE,
-              main.title = main_title,
-              main.title.size = 1,
-              legend.outside = FALSE,
-              inner.margins = c(0.06, 0.10, 0.10, 0.08)
-    ) +
-    #tm_scale_bar(color.dark = "gray60",
-     #            position = c("left", "bottom")) +
+    do.call(tm_layout, tm_layout_args) +
     tm_layout(legend.position = c("right", "bottom"))
-    # tm_compass(type = "4star", size = 2.5, text.size = 0.5,
-    #            color.dark = "gray60", text.color = "gray60",
-    #            position = c("left", "top")) +
-    # tm_credits("Philadelphia, PA", fontface = "italic", align = "right")
+  
+  # Additional elements like scale bar, compass, credits can be added as needed
 }
+
 
 tmap_theme_minimal <- function(tm_obj, main_title){
   tm_obj +

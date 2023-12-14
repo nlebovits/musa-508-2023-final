@@ -74,3 +74,22 @@ final_dataset_path <- "data/final_dataset.geojson"
 palette <- c("#ffab40", "#ff6c40", "#1cb979", "#bdeeda", "#eae8ec")
 mono_5_orange <- rev(generate_palette(palette[2], modification = "go_lighter", n_colours = 5, view_palette = FALSE))  
 mono_5_green <- rev(generate_palette(palette[3], modification = "go_lighter", n_colours = 5, view_palette = FALSE)) 
+
+zoning_palette <- c(
+  "I1" = "#7D26CD", # purple
+  "I3" = "#8A2BE2", # blue violet
+  "ICMX" = "#DC143C", # crimson red (more visible than pure red)
+  "IP" = "#9932CC", # dark orchid
+  "IRMX" = "#800080", # purple (darker shade for contrast)
+  "RSA1" = "#FFD700", # gold
+  "RSA2" = "#DAA520", # golden rod (darker than pure yellow)
+  "RSA3" = "#FFB14E", # peach-orange (darker than peach-yellow)
+  "RSA4" = "#FFC72C", # saffron (brighter and more visible than lemon chiffon)
+  "RSA5" = "#FFD300", # cyber yellow (stands out better than light goldenrod)
+  "RSA6" = "#FFDB58", # mustard (visible against white, still yellowish)
+  "RSD1" = "#BDB76B", # dark khaki
+  "RSD2" = "#E9967A", # dark salmon (more visible than peach puff)
+  "RSD3" = "#DEB887"  # burlywood (darker than pale goldenrod)
+)
+
+
